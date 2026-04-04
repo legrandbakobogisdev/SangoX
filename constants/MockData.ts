@@ -1,0 +1,55 @@
+export const STORIES = [
+  { id: '1', name: 'Terry', image: 'https://images.unsplash.com/photo-1539571696357-5a69c17a67c6?w=200' },
+  { id: '2', name: 'Craig', image: 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=200' },
+  { id: '3', name: 'Roger', image: 'https://images.unsplash.com/photo-1500648767791-00dcc994a43e?w=200' },
+  { id: '4', name: 'Nolan', image: 'https://images.unsplash.com/photo-1494790108377-be9c29b29330?w=200' },
+  { id: '5', name: 'Sarah', image: 'https://images.unsplash.com/photo-1438761681033-6461ffad8d80?w=200' },
+];
+
+export const CHATS = [
+  {
+    id: '1',
+    name: 'Angel Curtis',
+    message: 'Please help me find a good monitor for t...',
+    time: '02:11',
+    unread: 2,
+    image: 'https://images.unsplash.com/photo-1494790108377-be9c29b29330?w=200',
+    online: true,
+  },
+  {
+    id: '2',
+    name: 'Zaire Dorwart',
+    message: 'Gacor pisan kang',
+    time: '02:11',
+    unread: 0,
+    image: 'https://images.unsplash.com/photo-1539571696357-5a69c17a67c6?w=200',
+    online: false,
+  },
+  {
+    id: '3',
+    name: 'Kelas Malam',
+    message: 'Bima : No one can come today?',
+    time: '02:11',
+    unread: 2,
+    image: 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=200',
+    online: true,
+  },
+  {
+    id: '4',
+    name: 'Jocelyn Gouse',
+    message: 'You\'re now an admin',
+    time: '02:11',
+    unread: 0,
+    image: 'https://images.unsplash.com/photo-1438761681033-6461ffad8d80?w=200',
+    online: false,
+  },
+  {
+    id: '5',
+    name: 'Jaylon Dias',
+    message: 'Buy back 10k gallons, top up credit...',
+    time: '02:11',
+    unread: 0,
+    image: 'https://images.unsplash.com/photo-1500648767791-00dcc994a43e?w=200',
+    online: true,
+  },
+];
