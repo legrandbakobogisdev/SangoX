@@ -9,11 +9,14 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 const { width, height } = Dimensions.get('window');
 
+import StoryService from '@/services/StoryService';
+
 export default function CreateStatusScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const [text, setText] = useState('');
   const [image, setImage] = useState<string | null>(null);
+  const [isPublishing, setIsPublishing] = useState(false);
 
   const pickImage = async () => {
     let result = await ImagePicker.launchImageLibraryAsync({
@@ -25,6 +28,30 @@ export default function CreateStatusScreen() {
 
     if (!result.canceled) {
       setImage(result.assets[0].uri);
+    }
+  };
+
+  const handlePublish = async () => {
+    if (!text && !image) return;
+    
+    try {
+      setIsPublishing(true);
+      // In a real scenario, you might want to upload the image first and get a URL.
+      // Here we assume the backend handles it or we send the local URI/text.
+      await StoryService.createStory({
+        type: image ? 'image' : 'text',
+        content: image || text, // If there's an image, the content might be the URL. If just text, content is text
+        mediaParams: {
+          text: image ? text : undefined, // Optional overlay text if image
+          uri: image,
+        }
+      });
+      router.back();
+    } catch (e) {
+      console.error('Failed to create story', e);
+      alert('Error creating story');
+    } finally {
+      setIsPublishing(false);
     }
   };
 
@@ -83,12 +110,12 @@ export default function CreateStatusScreen() {
           </View>
 
           <Pressable 
-            style={[styles.publishBtn, { opacity: (text || image) ? 1 : 0.5 }]}
-            disabled={!text && !image}
-            onPress={() => router.back()}
+            style={[styles.publishBtn, { opacity: (text || image) && !isPublishing ? 1 : 0.5 }]}
+            disabled={(!text && !image) || isPublishing}
+            onPress={handlePublish}
           >
-            <Text style={styles.publishText}>Publier</Text>
-            <Ionicons name="paper-plane" size={18} color="#000" style={{ marginLeft: 8 }} />
+            <Text style={styles.publishText}>{isPublishing ? 'Publication...' : 'Publier'}</Text>
+            {!isPublishing && <Ionicons name="paper-plane" size={18} color="#000" style={{ marginLeft: 8 }} />}
           </Pressable>
         </View>
       </KeyboardAvoidingView>

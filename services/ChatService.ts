@@ -40,7 +40,15 @@ export class ChatService {
    * Get all conversations for the current user
    */
   static async getConversations(): Promise<Conversation[]> {
-    const response: any = await ApiService.get('/api/chat?pagination=false');
+    const response: any = await ApiService.get('/api/chat/conversations?pagination=false');
+    return response.data;
+  }
+
+  /**
+   * Get archived conversations for the current user
+   */
+  static async getArchivedConversations(): Promise<Conversation[]> {
+    const response: any = await ApiService.get('/api/chat/conversations/archived?pagination=false');
     return response.data;
   }
 

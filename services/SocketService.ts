@@ -13,12 +13,21 @@ class SocketService {
    * Initialize and connect the socket
    */
   async connect(token?: string): Promise<boolean> {
-    if (this.socket?.connected) return true;
-
     const actualToken = token || await AsyncStorage.getItem(ACCESS_TOKEN_KEY);
     if (!actualToken) {
       console.warn('Socket connection failed: No token found');
       return false;
+    }
+
+    if (this.socket?.connected) {
+      // If already connected but auth token is outdated after a refresh
+      const currentAuthToken = (this.socket as any).auth?.token;
+      if (currentAuthToken && currentAuthToken !== actualToken) {
+        console.log('[Socket] Token changed, reconnecting socket...');
+        (this.socket as any).auth.token = actualToken;
+        this.socket.disconnect().connect();
+      }
+      return true;
     }
 
     return new Promise((resolve) => {
@@ -58,8 +67,30 @@ class SocketService {
         resolve(true);
       });
 
-      this.socket.on('connect_error', (error) => {
+      this.socket.on('connect_error', async (error) => {
         console.error('Socket.io connection error:', error.message);
+        
+        // Handle token expiry: attempt to get fresh token and retry once
+        if (error.message.includes('Authentication error') || error.message.includes('Invalid token')) {
+            const freshToken = await AsyncStorage.getItem(ACCESS_TOKEN_KEY);
+            const currentAuthToken = (this.socket as any)?.auth?.token;
+            
+            if (freshToken && freshToken !== currentAuthToken) {
+                console.log('[Socket] Auth error detected but fresh token found in storage. Retrying...');
+                if (this.socket) {
+                    (this.socket as any).auth.token = freshToken;
+                    // Update extraHeaders as well if they were set
+                    if (this.socket.io && (this.socket.io as any).opts) {
+                        (this.socket.io as any).opts.extraHeaders = {
+                            Authorization: `Bearer ${freshToken}`
+                        };
+                    }
+                    this.socket.disconnect().connect();
+                    return; // Don't resolve yet, let the next connect attempt handle it
+                }
+            }
+        }
+        
         resolve(false);
       });
 

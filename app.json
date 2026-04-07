@@ -23,8 +23,21 @@
           },
           {
             "SKAdNetworkIdentifier": "n38lu8286q.skadnetwork"
+          },
+          {
+            "SKAdNetworkIdentifier": "v9wttpbfk9.skadnetwork"
+          },
+          {
+            "SKAdNetworkIdentifier": "n38lu8286q.skadnetwork"
+          },
+          {
+            "SKAdNetworkIdentifier": "v9wttpbfk9.skadnetwork"
+          },
+          {
+            "SKAdNetworkIdentifier": "n38lu8286q.skadnetwork"
           }
-        ]
+        ],
+        "ITSAppUsesNonExemptEncryption": false
       },
       "bundleIdentifier": "com.albertkingston.PressingExpress"
     },
@@ -89,7 +102,7 @@
     "extra": {
       "router": {},
       "eas": {
-        "projectId": "03aa4a64-09cb-484e-994c-168b6a772a69"
+        "projectId": "b3939fb8-3271-4556-b948-7a179b00fba2"
       }
     }
   }

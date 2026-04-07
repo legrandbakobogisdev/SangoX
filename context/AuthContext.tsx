@@ -4,6 +4,8 @@ import { Alert } from 'react-native';
 import { useAuthApi } from '@/hooks/useAuthApi';
 import { E2EEService } from '@/services/E2EEService';
 import NotificationService from '@/services/NotificationService';
+import { ApiService } from '@/services/api';
+import i18n from '@/i18n';
 
 export interface User {
   id: string;
@@ -112,8 +114,14 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         ]);
         
         if (storedUser && storedToken) {
-          setUser(JSON.parse(storedUser));
+          const userData = JSON.parse(storedUser);
+          setUser(userData);
           setAccessToken(storedToken);
+          
+          // Apply user's language immediately if available
+          if (userData.settings?.account?.language) {
+            i18n.changeLanguage(userData.settings.account.language);
+          }
         }
       } catch (error) {
         console.error('Init Auth Error:', error);
@@ -122,6 +130,16 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       }
     };
     initAuth();
+
+    // LISTEN FOR REFRESH FROM APISERVICE
+    ApiService.setOnTokenRefresh((newToken: string) => {
+      console.log('[AuthContext] Token refreshed, updating state...');
+      setAccessToken(newToken);
+    });
+
+    return () => {
+      ApiService.setOnTokenRefresh(() => {});
+    };
   }, []);
 
   const signIn = async (email: string, password: string) => {
@@ -205,6 +223,11 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       const updatedUser = { ...user, settings: updatedSettings };
       setUser(updatedUser);
       await AsyncStorage.setItem(USER_STORAGE_KEY, JSON.stringify(updatedUser));
+      
+      // Auto-apply language if it was the setting that changed
+      if (category === 'account' && data.language && i18n.language !== data.language) {
+        i18n.changeLanguage(data.language);
+      }
     } catch (error: any) {
       console.error('Update Settings Error:', error);
       throw error;

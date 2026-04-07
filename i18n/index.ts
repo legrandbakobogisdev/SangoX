@@ -64,7 +64,12 @@ const resources = {
       "loading_contacts": "Loading contacts...",
       "no_contacts_found": "No contacts found",
       "no_contacts": "No contacts on device",
-      "no_phone": "No phone number"
+      "no_phone": "No phone number",
+      "all": "All",
+      "unread": "Unread",
+      "archives": "Archives",
+      "no_chats": "No conversations yet",
+      "no_results_found": "No matching conversations found"
     }
   },
   fr: {
@@ -127,7 +132,12 @@ const resources = {
       "loading_contacts": "Chargement des contacts...",
       "no_contacts_found": "Aucun contact trouvé",
       "no_contacts": "Aucun contact sur l'appareil",
-      "no_phone": "Pas de numéro"
+      "no_phone": "Pas de numéro",
+      "all": "Toutes",
+      "unread": "Non lues",
+      "archives": "Archivées",
+      "no_chats": "Aucune discussion pour le moment",
+      "no_results_found": "Aucun résultat trouvé pour ce filtre"
     }
   },
   ru: {
@@ -423,12 +433,19 @@ const loadSavedLanguage = async () => {
   try {
     const savedLanguage = await AsyncStorage.getItem('user-language');
     if (savedLanguage && savedLanguage !== i18n.language) {
-      i18n.changeLanguage(savedLanguage);
+      await i18n.changeLanguage(savedLanguage);
     }
   } catch (error) {
     console.warn('I18n: Failed to load language from AsyncStorage:', error);
   }
 };
+
+// Listen for language changes and persist them
+i18n.on('languageChanged', (lng) => {
+  AsyncStorage.setItem('user-language', lng).catch(err => {
+    console.warn('I18n: Failed to save language to AsyncStorage:', err);
+  });
+});
 
 loadSavedLanguage();
 

@@ -13,6 +13,11 @@ export class ApiService {
   }
 
   private static isRefreshing = false;
+  private static onTokenRefresh: ((token: string) => void) | null = null;
+
+  public static setOnTokenRefresh(callback: (token: string) => void) {
+    this.onTokenRefresh = callback;
+  }
 
   private static async request<T>(endpoint: string, options: RequestOptions = {}): Promise<T> {
     const token = await AsyncStorage.getItem(ACCESS_TOKEN_KEY);
@@ -54,8 +59,12 @@ export class ApiService {
                });
                const refreshResult = await refreshResponse.json();
                if (refreshResponse.ok) {
-                  await AsyncStorage.setItem(ACCESS_TOKEN_KEY, refreshResult.data.accessToken);
+                  const newAccessToken = refreshResult.data.accessToken;
+                  await AsyncStorage.setItem(ACCESS_TOKEN_KEY, newAccessToken);
                   await AsyncStorage.setItem('@sangox_refresh_token', refreshResult.data.refreshToken);
+                  if (this.onTokenRefresh) {
+                    this.onTokenRefresh(newAccessToken);
+                  }
                   this.isRefreshing = false;
                   return this.request<T>(endpoint, options);
                }

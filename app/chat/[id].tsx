@@ -77,6 +77,7 @@ export default function ChatDetailScreen() {
   const [selectedMessage, setSelectedMessage] = useState<any>(null);
   const [replyToMessage, setReplyToMessage] = useState<any>(null);
   const [editingMessage, setEditingMessage] = useState<any>(null);
+  const [menuPosition, setMenuPosition] = useState({ top: 0, isMine: false });
   const [actionMenuVisible, setActionMenuVisible] = useState(false);
   const [newlySentMessageId, setNewlySentMessageId] = useState<string | null>(null);
   const [isPartnerTyping, setIsPartnerTyping] = useState(false);
@@ -191,11 +192,17 @@ export default function ChatDetailScreen() {
     }
   };
 
-  const handleLongPress = useCallback((msg: any) => {
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+  const handleLongPress = useCallback((msg: any, event: any) => {
     setSelectedMessage(msg);
+    const { pageY } = event.nativeEvent;
+    
+    // Position near the touch point, ensuring it doesn't go offscreen at the bottom
+    const top = Math.min(pageY, Dimensions.get('window').height - 280);
+    const isMine = msg.senderId === user?._id;
+    
+    setMenuPosition({ top, isMine });
     setActionMenuVisible(true);
-  }, []);
+  }, [user?._id]);
 
   const handleSendMessage = async () => {
     if (!input.trim()) return;
@@ -510,57 +517,58 @@ export default function ChatDetailScreen() {
             )}
         </View>
 
-        {/* Action Menu Modal */}
+        {/* Action Menu Modal (Sleek Popup) */}
         <Modal
           transparent
           visible={actionMenuVisible}
           animationType="fade"
           onRequestClose={() => setActionMenuVisible(false)}
         >
-          <TouchableOpacity
+          <Pressable
             style={styles.modalOverlay}
-            activeOpacity={1}
             onPress={() => setActionMenuVisible(false)}
           >
-            <View style={styles.menuContainer}>
-              <TouchableOpacity style={styles.menuItem} onPress={() => {
+            <View style={[styles.contextMenuContainer, { backgroundColor: colors.surface, borderColor: colors.border }, {
+              position: 'absolute',
+              top: menuPosition.top,
+              ...(menuPosition.isMine ? { right: 20 } : { left: 20 })
+            }]}>
+              <Pressable style={({ pressed }) => [styles.actionMenuItem, pressed && { backgroundColor: colors.background }]} onPress={() => {
                 handleReply(selectedMessage);
                 setActionMenuVisible(false);
               }}>
-                <Ionicons name="arrow-undo-outline" size={20} color="#333" />
-                <Text style={styles.menuItemText}>Répondre</Text>
-              </TouchableOpacity>
-              <TouchableOpacity style={styles.menuItem} onPress={() => handleCopy(selectedMessage)}>
-                <Ionicons name="copy-outline" size={20} color="#333" />
-                <Text style={styles.menuItemText}>Copier</Text>
-              </TouchableOpacity>
+                <Ionicons name="arrow-undo-outline" size={20} color={colors.text} />
+                <Text style={[styles.actionMenuItemText, { color: colors.text }]}>{t('reply', 'Répondre')}</Text>
+              </Pressable>
               
-              <TouchableOpacity style={styles.menuItem} onPress={() => handlePin(selectedMessage)}>
-                <Ionicons name="pin-outline" size={20} color="#333" />
-                <Text style={styles.menuItemText}>Épingler</Text>
-              </TouchableOpacity>
+              <Pressable style={({ pressed }) => [styles.actionMenuItem, pressed && { backgroundColor: colors.background }]} onPress={() => handleCopy(selectedMessage)}>
+                <Ionicons name="copy-outline" size={20} color={colors.text} />
+                <Text style={[styles.actionMenuItemText, { color: colors.text }]}>{t('copy', 'Copier')}</Text>
+              </Pressable>
+
+              <Pressable style={({ pressed }) => [styles.actionMenuItem, pressed && { backgroundColor: colors.background }]} onPress={() => handlePin(selectedMessage)}>
+                <Ionicons name="pin-outline" size={20} color={colors.text} />
+                <Text style={[styles.actionMenuItemText, { color: colors.text }]}>{t('pin', 'Épingler')}</Text>
+              </Pressable>
 
               {selectedMessage && selectedMessage.senderId === user?._id && (
                 <>
-                  <TouchableOpacity style={styles.menuItem} onPress={() => {
+                  <Pressable style={({ pressed }) => [styles.actionMenuItem, pressed && { backgroundColor: colors.background }]} onPress={() => {
                     handleEdit(selectedMessage);
                     setActionMenuVisible(false);
                   }}>
-                    <Ionicons name="pencil-outline" size={20} color="#333" />
-                    <Text style={styles.menuItemText}>Modifier</Text>
-                  </TouchableOpacity>
+                    <Ionicons name="pencil-outline" size={20} color={colors.text} />
+                    <Text style={[styles.actionMenuItemText, { color: colors.text }]}>{t('edit', 'Modifier')}</Text>
+                  </Pressable>
 
-                  <TouchableOpacity style={styles.menuItem} onPress={() => handleDelete(selectedMessage)}>
-                    <Ionicons name="trash-outline" size={20} color="#FF3B30" />
-                    <Text style={[styles.menuItemText, { color: '#FF3B30' }]}>Supprimer</Text>
-                  </TouchableOpacity>
+                  <Pressable style={({ pressed }) => [styles.actionMenuItem, pressed && { backgroundColor: colors.background }]} onPress={() => handleDelete(selectedMessage)}>
+                    <Ionicons name="trash-outline" size={20} color={colors.error || '#FF3B30'} />
+                    <Text style={[styles.actionMenuItemText, { color: colors.error || '#FF3B30' }]}>{t('delete', 'Supprimer')}</Text>
+                  </Pressable>
                 </>
               )}
-              <TouchableOpacity style={[styles.menuItem, { borderBottomWidth: 0 }]} onPress={() => setActionMenuVisible(false)}>
-                <Text style={styles.cancelText}>Annuler</Text>
-              </TouchableOpacity>
             </View>
-          </TouchableOpacity>
+          </Pressable>
         </Modal>
 
         {/* More Options Modal */}
@@ -627,25 +635,26 @@ export default function ChatDetailScreen() {
 
             <View style={[styles.actionList, { borderTopColor: colors.border }]}>
               {[
-                { label: t('copy'), icon: <Copy size={20} color={colors.textMuted} />, color: colors.text, action: () => {
-                    Haptics.selectionAsync();
-                    // Copy logic here
-                    bottomSheetRef.current?.close();
+                { label: t('copy', 'Copier'), icon: <Copy size={20} color={colors.textMuted} />, color: colors.text, action: () => {
+                    handleCopy(selectedMessage);
                 }},
-                { label: t('reply'), icon: <Reply size={20} color={colors.textMuted} />, color: colors.text, action: () => {
+                { label: t('reply', 'Répondre'), icon: <Reply size={20} color={colors.textMuted} />, color: colors.text, action: () => {
                     handleReply(selectedMessage);
                     bottomSheetRef.current?.close();
                 }},
-                { label: t('edit'), icon: <Copy size={20} color={colors.textMuted} />, color: colors.text, action: () => {
+                { label: t('pin', 'Épingler'), icon: <Ionicons name="pin-outline" size={20} color={colors.textMuted} />, color: colors.text, action: () => {
+                    handlePin(selectedMessage);
+                }},
+                ...(selectedMessage?.senderId === user?._id ? [{ label: t('edit', 'Modifier'), icon: <Ionicons name="pencil-outline" size={20} color={colors.textMuted} />, color: colors.text, action: () => {
                     handleEdit(selectedMessage);
                     bottomSheetRef.current?.close();
-                }},
-                { label: t('forward'), icon: <Forward size={20} color={colors.textMuted} />, color: colors.text, action: () => {
+                }}] : []),
+                { label: t('forward', 'Transférer'), icon: <Forward size={20} color={colors.textMuted} />, color: colors.text, action: () => {
                     bottomSheetRef.current?.close();
                 }},
-                { label: t('delete'), icon: <Trash2 size={20} color={colors.error} />, color: colors.error, action: () => {
-                    bottomSheetRef.current?.close();
-                }},
+                ...(selectedMessage?.senderId === user?._id ? [{ label: t('delete', 'Supprimer'), icon: <Trash2 size={20} color={colors.error} />, color: colors.error, action: () => {
+                    handleDelete(selectedMessage);
+                }}] : []),
               ].map((action, idx) => (
                 <Pressable
                   key={idx}
@@ -936,6 +945,29 @@ const styles = StyleSheet.create({
     width: '100%',
     fontWeight: '600',
   },
+  contextMenuContainer: {
+    width: 250,
+    borderRadius: 14,
+    borderWidth: StyleSheet.hairlineWidth,
+    elevation: 5,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.1,
+    shadowRadius: 10,
+    paddingVertical: 5,
+    zIndex: 1000,
+  },
+  actionMenuItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 12,
+    paddingHorizontal: 16,
+  },
+  actionMenuItemText: {
+    fontSize: 16,
+    marginLeft: 15,
+    fontWeight: '500',
+  },
   // --- Pinned Bar ---
   pinnedBar: {
     flexDirection: 'row',
@@ -1100,7 +1132,7 @@ const MessageItem = memo(({ item, isMine, currentUser, onLongPress, onReply, sho
   item: any;
   isMine: boolean;
   currentUser: any;
-  onLongPress: (m: any) => void;
+  onLongPress: (m: any, e: any) => void;
   onReply: (m: any) => void;
   shouldAnimate: boolean;
   colors: any;
@@ -1142,7 +1174,7 @@ const MessageItem = memo(({ item, isMine, currentUser, onLongPress, onReply, sho
         leftThreshold={40}
       >
         <Pressable
-          onLongPress={() => onLongPress(item)}
+          onLongPress={(e) => onLongPress(item, e)}
           style={[styles.messageWrapper, isMine ? styles.myMessageWrapper : styles.theirMessageWrapper]}
         >
           <View style={[

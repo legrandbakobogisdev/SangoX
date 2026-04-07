@@ -1,14 +1,26 @@
-import React, { useEffect } from 'react';
-import { View, ActivityIndicator } from 'react-native';
-import { Stack, useRouter, useSegments } from 'expo-router';
-import { StatusBar } from 'expo-status-bar';
-import { GestureHandlerRootView } from 'react-native-gesture-handler';
-import * as SplashScreen from 'expo-splash-screen';
-import { useFonts } from 'expo-font';
-import { ThemeProvider, useTheme } from '@/context/ThemeContext';
 import { AuthProvider, useAuth } from '@/context/AuthContext';
 import { ChatProvider } from '@/context/ChatContext';
+import { ThemeProvider, useTheme } from '@/context/ThemeContext';
+import { useFonts } from 'expo-font';
+import { Stack, useRouter, useSegments } from 'expo-router';
+import * as SplashScreen from 'expo-splash-screen';
+import { StatusBar } from 'expo-status-bar';
+import React, { useEffect } from 'react';
+import { ActivityIndicator, View } from 'react-native';
+import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import '../i18n';
+import NotificationService from '@/services/NotificationService';
+import * as Notifications from 'expo-notifications';
+
+Notifications.setNotificationHandler({
+  handleNotification: async () => ({
+    shouldShowAlert: true,
+    shouldPlaySound: true,
+    shouldSetBadge: true,
+    shouldShowBanner: true,
+    shouldShowList: true,
+  }),
+});
 
 // Prevent splash screen from auto-hiding
 SplashScreen.preventAutoHideAsync();
@@ -49,6 +61,7 @@ export default function RootLayout() {
   useEffect(() => {
     if (loaded || error) {
       SplashScreen.hideAsync();
+      NotificationService.setupNotificationCategories();
     }
   }, [loaded, error]);
 
@@ -76,31 +89,31 @@ export default function RootLayout() {
                 <Stack.Screen name="(tabs)" />
                 <Stack.Screen name="profile" options={{ animation: 'ios_from_right' }} />
                 <Stack.Screen name="profile/edit" options={{ animation: 'ios_from_right' }} />
-                <Stack.Screen 
-                  name="chat/[id]" 
-                  options={{ 
+                <Stack.Screen
+                  name="chat/[id]"
+                  options={{
                     animation: 'ios_from_right', // Consistent Telegram-like animation
                     animationDuration: 300,
                     gestureEnabled: true,
-                  }} 
+                  }}
                 />
-                <Stack.Screen 
-                  name="status/[id]" 
-                  options={{ 
+                <Stack.Screen
+                  name="status/[id]"
+                  options={{
                     presentation: 'transparentModal',
                     animation: 'fade',
                     animationDuration: 200,
                     gestureEnabled: false,
-                  }} 
+                  }}
                 />
-                <Stack.Screen 
-                  name="status/create" 
-                  options={{ 
+                <Stack.Screen
+                  name="status/create"
+                  options={{
                     presentation: 'modal',
                     animation: 'slide_from_bottom',
                     animationDuration: 250,
                     gestureEnabled: true,
-                  }} 
+                  }}
                 />
                 <Stack.Screen name="modal" options={{ presentation: 'modal' }} />
               </Stack>
