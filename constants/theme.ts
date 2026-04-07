@@ -16,8 +16,9 @@ export const Colors = {
     tabIconSelected: '#FFC107',
     error: '#DC3545',
     success: '#28A745',
-    bubbleSelf: '#FFC107',
     bubbleOther: '#F1F3F5',
+    bubbleSelf: '#FFC107',
+    surface: '#F8F9FA',
   },
   dark: {
     primary: '#FFC107',
@@ -34,8 +35,9 @@ export const Colors = {
     tabIconSelected: '#FFC107',
     error: '#E03131',
     success: '#2F9E44',
-    bubbleSelf: '#FFC107',
     bubbleOther: '#2C2C2E',
+    bubbleSelf: '#FFC107',
+    surface: '#1E1E1E',
   },
 };
 

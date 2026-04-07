@@ -3,6 +3,8 @@ import React from 'react';
 import { StyleSheet, View, Text, Pressable, Switch, Image, Platform } from 'react-native';
 import { Home, User, Sun, Moon, LogOut, Search, Plus, MessageCircle, ChevronRight, Shield, Bell, CircleHelp, Globe } from 'lucide-react-native';
 import { useTheme } from '@/context/ThemeContext';
+import { useAuth } from '@/context/AuthContext';
+import { ContactsModal } from '@/components/contacts/ContactsModal';
 import { DrawerContentScrollView, DrawerItemList } from '@react-navigation/drawer';
 import { Spacing, BorderRadius } from '@/constants/theme';
 import { useTranslation } from 'react-i18next';
@@ -11,6 +13,7 @@ import { useRouter } from 'expo-router';
 // Premium Custom Drawer Content
 function CustomDrawerContent(props: any) {
   const { colors, theme, toggleTheme } = useTheme();
+  const { user, signOut } = useAuth();
   const { t } = useTranslation();
   const router = useRouter();
 
@@ -19,28 +22,32 @@ function CustomDrawerContent(props: any) {
       {/* Header with gradient-like accent */}
       <View style={[styles.drawerHeader, { backgroundColor: colors.primary }]}>
         <View style={styles.avatarRow}>
-          <View style={styles.avatarBox}>
-            <User size={32} color="#000" />
-          </View>
+          {user?.profilePhotoUrl ? (
+            <Image source={{ uri: user.profilePhotoUrl }} style={styles.avatarImage} />
+          ) : (
+            <View style={styles.avatarBox}>
+              <User size={32} color="#000" />
+            </View>
+          )}
           <View style={styles.onlineDot} />
         </View>
-        <Text style={styles.drawerName}>Zaire Dorwart</Text>
-        <Text style={styles.drawerHandle}>@zaire.design</Text>
+        <Text style={styles.drawerName}>{user?.fullName || user?.firstName || 'User'}</Text>
+        <Text style={styles.drawerHandle}>@{user?.username || 'user'}</Text>
         
         <View style={styles.statsRow}>
           <View style={styles.statItem}>
             <Text style={styles.statNumber}>128</Text>
-            <Text style={styles.statLabel}>{t('chats')}</Text>
+            <Text style={styles.statLabel}>{t('chats_count')}</Text>
           </View>
           <View style={[styles.statDivider, { backgroundColor: 'rgba(0,0,0,0.15)' }]} />
           <View style={styles.statItem}>
             <Text style={styles.statNumber}>24</Text>
-            <Text style={styles.statLabel}>Groups</Text>
+            <Text style={styles.statLabel}>{t('groups')}</Text>
           </View>
           <View style={[styles.statDivider, { backgroundColor: 'rgba(0,0,0,0.15)' }]} />
           <View style={styles.statItem}>
             <Text style={styles.statNumber}>3</Text>
-            <Text style={styles.statLabel}>Stories</Text>
+            <Text style={styles.statLabel}>{t('stories_count')}</Text>
           </View>
         </View>
       </View>
@@ -52,54 +59,77 @@ function CustomDrawerContent(props: any) {
         showsVerticalScrollIndicator={false}
       >
         <View style={styles.navSection}>
-          <DrawerItemList {...props} />
-        </View>
-
-        {/* Extra Menu Items */}
-        <View style={[styles.menuSection, { borderTopColor: colors.border }]}>
-          <Text style={[styles.sectionLabel, { color: colors.textMuted }]}>MORE</Text>
-          
           <Pressable 
             style={({ pressed }) => [styles.menuItem, pressed && { backgroundColor: colors.secondary }]}
-            android_ripple={{ color: colors.border }}
+            onPress={() => router.push('/(tabs)')}
           >
-            <View style={[styles.menuIconBox, { backgroundColor: colors.secondary }]}>
-              <Bell size={18} color={colors.text} />
+            <View style={[styles.menuIconBox, { backgroundColor: colors.primary + '15' }]}>
+              <MessageCircle size={18} color={colors.primary} />
             </View>
-            <Text style={[styles.menuLabel, { color: colors.text }]}>Notifications</Text>
-            <ChevronRight size={16} color={colors.textMuted} />
+            <Text style={[styles.menuLabel, { color: colors.text }]}>{t('discussions')}</Text>
           </Pressable>
 
           <Pressable 
             style={({ pressed }) => [styles.menuItem, pressed && { backgroundColor: colors.secondary }]}
+            onPress={() => router.push('/settings')}
+          >
+            <View style={[styles.menuIconBox, { backgroundColor: colors.primary + '15' }]}>
+              <User size={18} color={colors.primary} />
+            </View>
+            <Text style={[styles.menuLabel, { color: colors.text }]}>{t('settings')}</Text>
+          </Pressable>
+        </View>
+
+        {/* Shortcuts Section */}
+        <View style={[styles.menuSection, { borderTopColor: colors.border }]}>
+          <Text style={[styles.sectionLabel, { color: colors.textMuted }]}>{t('shortcuts')}</Text>
+          
+
+          <Pressable 
+            style={({ pressed }) => [styles.menuItem, pressed && { backgroundColor: colors.secondary }]}
             android_ripple={{ color: colors.border }}
+            onPress={() => router.push('/settings/privacy')}
           >
             <View style={[styles.menuIconBox, { backgroundColor: colors.secondary }]}>
               <Shield size={18} color={colors.text} />
             </View>
-            <Text style={[styles.menuLabel, { color: colors.text }]}>Privacy</Text>
+            <Text style={[styles.menuLabel, { color: colors.text }]}>{t('privacy')}</Text>
             <ChevronRight size={16} color={colors.textMuted} />
           </Pressable>
 
           <Pressable 
             style={({ pressed }) => [styles.menuItem, pressed && { backgroundColor: colors.secondary }]}
             android_ripple={{ color: colors.border }}
+            onPress={() => router.push('/settings/notifications')}
           >
             <View style={[styles.menuIconBox, { backgroundColor: colors.secondary }]}>
-              <Globe size={18} color={colors.text} />
+              <Bell size={18} color={colors.text} />
             </View>
-            <Text style={[styles.menuLabel, { color: colors.text }]}>{t('language')}</Text>
+            <Text style={[styles.menuLabel, { color: colors.text }]}>{t('notifications')}</Text>
             <ChevronRight size={16} color={colors.textMuted} />
           </Pressable>
 
           <Pressable 
             style={({ pressed }) => [styles.menuItem, pressed && { backgroundColor: colors.secondary }]}
             android_ripple={{ color: colors.border }}
+            onPress={() => router.push('/settings/chat')}
+          >
+            <View style={[styles.menuIconBox, { backgroundColor: colors.secondary }]}>
+              <MessageCircle size={18} color={colors.text} />
+            </View>
+            <Text style={[styles.menuLabel, { color: colors.text }]}>{t('theme')}</Text>
+            <ChevronRight size={16} color={colors.textMuted} />
+          </Pressable>
+
+          <Pressable 
+            style={({ pressed }) => [styles.menuItem, pressed && { backgroundColor: colors.secondary }]}
+            android_ripple={{ color: colors.border }}
+            onPress={() => router.push('/settings/help')}
           >
             <View style={[styles.menuIconBox, { backgroundColor: colors.secondary }]}>
               <CircleHelp size={18} color={colors.text} />
             </View>
-            <Text style={[styles.menuLabel, { color: colors.text }]}>Help</Text>
+            <Text style={[styles.menuLabel, { color: colors.text }]}>{t('help')}</Text>
             <ChevronRight size={16} color={colors.textMuted} />
           </Pressable>
         </View>
@@ -111,7 +141,7 @@ function CustomDrawerContent(props: any) {
           <View style={styles.themeIconLabel}>
             {theme === 'dark' ? <Moon size={18} color={colors.text} /> : <Sun size={18} color={colors.text} />}
             <Text style={[styles.themeLabel, { color: colors.text }]}>
-              {theme === 'dark' ? 'Dark Mode' : 'Light Mode'}
+              {theme === 'dark' ? t('dark_mode') : t('light_mode')}
             </Text>
           </View>
           <Switch 
@@ -126,21 +156,25 @@ function CustomDrawerContent(props: any) {
         <Pressable 
           style={({ pressed }) => [styles.logoutBtn, pressed && { opacity: 0.7 }]}
           android_ripple={{ color: 'rgba(220,53,69,0.1)' }}
+          onPress={signOut}
         >
           <LogOut size={18} color={'#DC3545'} />
-          <Text style={styles.logoutText}>Log Out</Text>
+          <Text style={styles.logoutText}>{t('logout')}</Text>
         </Pressable>
       </View>
     </View>
   );
 }
 
+
 export default function DrawerLayout() {
   const { colors } = useTheme();
   const { t } = useTranslation();
+  const [contactsVisible, setContactsVisible] = React.useState(false);
 
   return (
-    <Drawer
+    <>
+      <Drawer
       drawerContent={(props) => <CustomDrawerContent {...props} />}
       screenOptions={{
         headerStyle: {
@@ -181,6 +215,7 @@ export default function DrawerLayout() {
         name="index"
         options={{
           title: t('chats'),
+          drawerItemStyle: { display: 'none' }, // Manual handle in CustomDrawerContent
           drawerIcon: ({ color }) => <MessageCircle size={22} color={color} />,
           headerRight: () => (
             <View style={{ flexDirection: 'row', marginRight: 12 }}>
@@ -193,6 +228,7 @@ export default function DrawerLayout() {
               <Pressable 
                 style={({ pressed }) => [{ padding: 8, borderRadius: 20 }, pressed && { opacity: 0.6 }]}
                 android_ripple={{ color: colors.border, radius: 20 }}
+                onPress={() => setContactsVisible(true)}
               >
                 <Plus size={22} color={colors.text} />
               </Pressable>
@@ -201,22 +237,18 @@ export default function DrawerLayout() {
         }}
       />
       <Drawer.Screen
-        name="profile"
-        options={{
-          title: 'Profile',
-          drawerIcon: ({ color }) => <User size={22} color={color} />,
-        }}
-      />
-      
-      {/* Hide placeholder from drawer */}
-      <Drawer.Screen
          name="placeholder"
          options={{
            drawerItemStyle: { display: 'none' },
            headerShown: false,
          }}
       />
-    </Drawer>
+      </Drawer>
+      <ContactsModal 
+        visible={contactsVisible} 
+        onClose={() => setContactsVisible(false)} 
+      />
+    </>
   );
 }
 
@@ -248,6 +280,11 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.15,
     shadowRadius: 4,
     elevation: 4,
+  },
+  avatarImage: {
+    width: 60,
+    height: 60,
+    borderRadius: 30,
   },
   onlineDot: {
     position: 'absolute',

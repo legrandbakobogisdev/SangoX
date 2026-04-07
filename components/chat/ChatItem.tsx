@@ -7,14 +7,14 @@ import { Spacing, BorderRadius } from '@/constants/theme';
 interface ChatItemProps {
   id: string;
   name: string;
-  message: string;
+  text: string;
   time: string;
-  unread?: number;
-  image: string;
+  count?: number;
+  image?: string;
   online?: boolean;
 }
 
-export const ChatItem = React.memo<ChatItemProps>(({ id, name, message, time, unread, image, online }) => {
+export const ChatItem = React.memo<ChatItemProps>(({ id, name, text, time, count, image, online }) => {
   const { colors, theme } = useTheme();
   const router = useRouter();
 
@@ -48,10 +48,16 @@ export const ChatItem = React.memo<ChatItemProps>(({ id, name, message, time, un
         }
       ]}
     >
-      <View style={styles.avatarContainer}>
-        <Image source={{ uri: image }} style={styles.avatar} />
-        {online && <View style={[styles.onlineIndicator, { backgroundColor: colors.success, borderColor: colors.background }]} />}
-      </View>
+        <View style={styles.avatarContainer}>
+          {image ? (
+            <Image source={{ uri: image }} style={styles.avatar} />
+          ) : (
+            <View style={[styles.avatar, { backgroundColor: colors.secondary }]} />
+          )}
+          {online && (
+            <View style={[styles.onlineIndicator, { backgroundColor: colors.success, borderColor: colors.background }]} />
+          )}
+        </View>
       <View style={styles.content}>
         <View style={styles.header}>
           <Text style={[styles.name, { color: colors.text }]} numberOfLines={1}>
@@ -60,12 +66,19 @@ export const ChatItem = React.memo<ChatItemProps>(({ id, name, message, time, un
           <Text style={[styles.time, { color: colors.textMuted }]}>{time}</Text>
         </View>
         <View style={styles.footer}>
-          <Text style={[styles.message, { color: colors.textMuted }]} numberOfLines={1}>
-            {message}
+          <Text 
+            style={[
+                styles.message, 
+                { color: (count && count > 0) ? '#FFFFFF' : colors.textMuted },
+                (count && count > 0) ? { fontWeight: '700' } : null
+            ]} 
+            numberOfLines={1}
+          >
+            {text}
           </Text>
-          {unread !== undefined && unread > 0 && (
+          {count !== undefined && count > 0 && (
             <View style={[styles.unreadBadge, { backgroundColor: colors.primary }]}>
-              <Text style={styles.unreadText}>{unread}</Text>
+              <Text style={styles.unreadText}>{count}</Text>
             </View>
           )}
         </View>
