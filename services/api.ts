@@ -46,8 +46,10 @@ export class ApiService {
       const result = await response.json();
 
       if (!response.ok) {
-        // Handle Token Expiry
-        if (response.status === 401 && !endpoint.includes('/refresh') && !this.isRefreshing) {
+        // Handle Token Expiry - but NOT for login/register endpoints
+        const isAuthEndpoint = endpoint.includes('/login') || endpoint.includes('/register') || endpoint.includes('/refresh');
+        
+        if (response.status === 401 && !isAuthEndpoint && !this.isRefreshing) {
           this.isRefreshing = true;
           try {
             const refreshToken = await AsyncStorage.getItem('@sangox_refresh_token');
@@ -58,21 +60,31 @@ export class ApiService {
                   body: JSON.stringify({ refreshToken }),
                });
                const refreshResult = await refreshResponse.json();
-               if (refreshResponse.ok) {
+               if (refreshResponse.ok && refreshResult.data?.accessToken) {
                   const newAccessToken = refreshResult.data.accessToken;
                   await AsyncStorage.setItem(ACCESS_TOKEN_KEY, newAccessToken);
-                  await AsyncStorage.setItem('@sangox_refresh_token', refreshResult.data.refreshToken);
+                  if (refreshResult.data.refreshToken) {
+                    await AsyncStorage.setItem('@sangox_refresh_token', refreshResult.data.refreshToken);
+                  }
                   if (this.onTokenRefresh) {
                     this.onTokenRefresh(newAccessToken);
                   }
                   this.isRefreshing = false;
+                  // Retry the original request with new token
                   return this.request<T>(endpoint, options);
+               } else {
+                  console.error('Refresh token response not ok:', refreshResponse.status);
+                  this.isRefreshing = false;
+                  throw new Error('Token refresh failed');
                }
+            } else {
+              this.isRefreshing = false;
+              throw new Error('No refresh token available');
             }
           } catch (e) {
              console.error('Refresh Token flow failed', e);
-          } finally {
              this.isRefreshing = false;
+             throw new Error('Token refresh failed');
           }
         }
         

@@ -42,9 +42,16 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [onlineUsers, setOnlineUsers] = useState<Record<string, boolean>>({});
   const [pinnedMessages, setPinnedMessages] = useState<Record<string, Message[]>>({});
   const [typingStatus, setTypingStatus] = useState<Record<string, boolean>>({});
+  const [appState, setAppState] = useState<AppStateStatus>('active');
 
   const checkStatus = useCallback((userId: string) => {
     SocketService.emit('check_presence', [userId]);
+  }, []);
+
+  // Track app state
+  useEffect(() => {
+    const subscription = AppState.addEventListener('change', setAppState);
+    return () => subscription.remove();
   }, []);
 
   const getDisplayName = useCallback((participant: any) => {
@@ -136,6 +143,18 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   // Handle active conversation selection
   const setActiveConversation = useCallback(async (conversation: Conversation | null) => {
+    // Avoid redundant updates if the same conversation is already active
+    if (activeConversation?._id === conversation?._id) {
+      return;
+    }
+
+    // Don't load messages if app is in background
+    if (appState !== 'active') {
+      console.log('[Chat] App is in background, skipping message load');
+      setActiveConversationState(conversation);
+      return;
+    }
+
     setActiveConversationState(conversation);
 
     if (conversation) {
@@ -161,6 +180,23 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
         setMessages(data);
         setPinnedMessages(prev => ({ ...prev, [conversation._id]: pinnedData }));
 
+        // Mark all messages from other users as delivered
+        const messagesFromOthers = data.filter(m => m.senderId !== userId && m.status === 'sent');
+        if (messagesFromOthers.length > 0) {
+          console.log('[Chat] Marking', messagesFromOthers.length, 'messages as delivered');
+          setMessages(prev => prev.map(m => 
+            m.senderId !== userId && m.status === 'sent'
+              ? { ...m, status: 'delivered' as const }
+              : m
+          ));
+          
+          // Notify server that messages are delivered
+          SocketService.emit('messages_delivered', {
+            conversationId: conversation._id,
+            messageIds: messagesFromOthers.map(m => m._id)
+          });
+        }
+
         // Inform the socket that we joined this conversation room
         SocketService.joinConversation(conversation._id);
 
@@ -171,12 +207,13 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
         console.error('Error fetching messages:', error);
       } finally {
         // ...
+
       }
     } else {
       // Don't clear messages immediately to allow for smooth transitions
       //setActiveConversationState(null);
     }
-  }, []);
+  }, [user?._id, activeConversation?._id, appState]);
 
   // Send message
   const sendMessage = async (content: string, type: string = 'text', metadata = {}, replyTo?: string) => {
@@ -216,12 +253,20 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
       const newMessage = await ChatService.sendMessage(activeConversation._id, content, type, metadata, replyTo);
 
-      // Update the local list with the real message from server
-      setMessages(prev => prev.map(m => m._id === tempId ? newMessage : m));
+      // Check if recipient is online
+      const myId = String(user._id);
+      const recipientId = activeConversation.participants.find(p => String(p) !== myId);
+      const isRecipientOnline = recipientId ? onlineUsers[recipientId] : false;
+
+      // Mark as delivered immediately since server received it
+      // If recipient is online, they'll get it via Socket and send ACK
+      const deliveredMessage = { ...newMessage, status: 'delivered' as const };
+      console.log('[Chat] Message sent, marking as delivered:', newMessage._id);
+      setMessages(prev => prev.map(m => m._id === tempId ? deliveredMessage : m));
 
       // Update the conversation list silently
       setConversations(prev => prev.map(c =>
-        c._id === activeConversation._id ? { ...c, lastMessage: newMessage } : c
+        c._id === activeConversation._id ? { ...c, lastMessage: deliveredMessage } : c
       ));
     } catch (error) {
       console.error('Error sending message:', error);
@@ -266,8 +311,9 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
           // Re-establish connection if lost
           await SocketService.connect(accessToken);
         }
-      } else {
-        // App is in background or inactive (closing)
+      } else if (nextAppState === 'background') {
+        // App is in background - stop all non-critical operations
+        console.log('[AppState] App moved to background - stopping operations');
         SocketService.disconnect();
       }
     };
@@ -342,6 +388,14 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
         // Also mark as read
         SocketService.markAsRead(activeConversation._id);
         ChatService.markConversationAsRead(activeConversation._id).catch(e => console.log('mark read err:', e));
+        
+        // Send ACK that message is delivered
+        console.log('[Chat] Received message, sending delivery ACK:', message._id);
+        SocketService.emit('message_delivered', { messageId: message._id });
+      } else {
+        // Message not in active conversation - send delivery ACK anyway
+        console.log('[Chat] Received message in background, sending delivery ACK:', message._id);
+        SocketService.emit('message_delivered', { messageId: message._id });
       }
 
       // Update the conversation list to show the last message and unread count
@@ -368,11 +422,52 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
     // Message status updates (Traits)
     const handleStatusUpdate = (data: { messageId: string, isDelivered?: boolean, isRead?: boolean, status?: string }) => {
-      setMessages(prev => prev.map(m =>
-        m._id === data.messageId
-          ? { ...m, ...data, status: (data.status || m.status) as any }
-          : m
-      ));
+      console.log('[Socket] Message status update received:', JSON.stringify(data));
+      
+      // Normalize the status
+      let normalizedStatus = data.status;
+      if (!normalizedStatus) {
+        if (data.isRead) normalizedStatus = 'read';
+        else if (data.isDelivered) normalizedStatus = 'delivered';
+        else normalizedStatus = 'sent';
+      }
+      
+      console.log('[Socket] Normalized status:', normalizedStatus, 'for message:', data.messageId);
+      
+      setMessages(prev => {
+        const updated = prev.map(m =>
+          m._id === data.messageId
+            ? { ...m, status: normalizedStatus as any }
+            : m
+        );
+        
+        // Log if message was found and updated
+        const messageFound = prev.find(m => m._id === data.messageId);
+        const wasUpdated = updated.some(m => m._id === data.messageId && m.status === normalizedStatus);
+        
+        if (messageFound) {
+          console.log('[Socket] Message found. Old status:', messageFound.status, 'New status:', normalizedStatus, 'Updated:', wasUpdated);
+        } else {
+          console.log('[Socket] Message not found in state:', data.messageId, 'Total messages:', prev.length);
+        }
+        
+        return updated;
+      });
+      
+      // Also update the lastMessage in conversations if it matches
+      setConversations(prev => prev.map(conv => {
+        if (conv.lastMessage?._id === data.messageId) {
+          console.log('[Socket] Updating lastMessage status in conversation:', conv._id, 'to:', normalizedStatus);
+          return {
+            ...conv,
+            lastMessage: {
+              ...conv.lastMessage,
+              status: normalizedStatus as any
+            }
+          };
+        }
+        return conv;
+      }));
     };
 
     const handleConversationReadBatch = (data: { conversationId: string, readerId: string }) => {
@@ -386,6 +481,21 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
           m.conversationId === data.conversationId && m.senderId === myId
             ? { ...m, isRead: true, isDelivered: true, status: 'read' }
             : m
+        ));
+        
+        // Also update the lastMessage in conversations if it's from me
+        setConversations(prev => prev.map(c =>
+          c._id === data.conversationId && c.lastMessage?.senderId === myId
+            ? {
+                ...c,
+                lastMessage: {
+                  ...c.lastMessage,
+                  isRead: true,
+                  isDelivered: true,
+                  status: 'read'
+                }
+              }
+            : c
         ));
       }
 
@@ -484,6 +594,7 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
     SocketService.on('message_updated', handleMessageUpdated);
     SocketService.on('message_deleted', handleMessageDeleted);
     SocketService.on('message_pinned_status', handleMessagePinnedStatus);
+    console.log('[Socket] Event listeners registered for status updates');
 
     // User blocking synchronization (Global blocks)
     const handleUserBlockStatus = (data: { targetUserId?: string, blockerId?: string, status: 'blocked' | 'unblocked' }) => {
@@ -563,7 +674,7 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
       SocketService.off('user_typing_start', handleGlobalTypingStart);
       SocketService.off('user_typing_stop', handleGlobalTypingStop);
     };
-  }, [user?._id, activeConversation?._id, refreshConversations, messages]);
+  }, [user?._id, activeConversation?._id, refreshConversations]);
 
   const toggleArchive = async (conversationId: string) => {
     try {

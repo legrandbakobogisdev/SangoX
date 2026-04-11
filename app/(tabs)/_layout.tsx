@@ -1,7 +1,7 @@
 import { Drawer } from 'expo-router/drawer';
 import React from 'react';
 import { StyleSheet, View, Text, Pressable, Switch, Image, Platform } from 'react-native';
-import { Home, User, Sun, Moon, LogOut, Search, Plus, MessageCircle, ChevronRight, Shield, Bell, CircleHelp, Globe } from 'lucide-react-native';
+import { Home, User, Sun, Moon, LogOut, Search, Plus, MessageCircle, ChevronRight, Shield, Bell, CircleHelp, Globe, Crown, CreditCard } from 'lucide-react-native';
 import { useTheme } from '@/context/ThemeContext';
 import { useAuth } from '@/context/AuthContext';
 import { ContactsModal } from '@/components/contacts/ContactsModal';
@@ -9,6 +9,8 @@ import { DrawerContentScrollView, DrawerItemList } from '@react-navigation/drawe
 import { Spacing, BorderRadius } from '@/constants/theme';
 import { useTranslation } from 'react-i18next';
 import { useRouter } from 'expo-router';
+import { SubscriptionService, SubscriptionStatus } from '@/services/SubscriptionService';
+import { useState, useEffect } from 'react';
 
 // Premium Custom Drawer Content
 function CustomDrawerContent(props: any) {
@@ -16,6 +18,22 @@ function CustomDrawerContent(props: any) {
   const { user, signOut } = useAuth();
   const { t } = useTranslation();
   const router = useRouter();
+  const [subscription, setSubscription] = useState<SubscriptionStatus | null>(null);
+
+  useEffect(() => {
+    const fetchSubscription = async () => {
+      try {
+        const status = await SubscriptionService.getStatus();
+        setSubscription(status);
+      } catch (error) {
+        console.error('Failed to fetch subscription status:', error);
+      }
+    };
+
+    if (user) {
+      fetchSubscription();
+    }
+  }, [user]);
 
   return (
     <View style={[styles.drawerRoot, { backgroundColor: colors.background }]}>
@@ -67,6 +85,27 @@ function CustomDrawerContent(props: any) {
               <MessageCircle size={18} color={colors.primary} />
             </View>
             <Text style={[styles.menuLabel, { color: colors.text }]}>{t('discussions')}</Text>
+          </Pressable>
+
+          <Pressable 
+            style={({ pressed }) => [styles.menuItem, pressed && { backgroundColor: colors.secondary }]}
+            onPress={() => router.push('/settings/subscription')}
+          >
+            <View style={[styles.menuIconBox, { backgroundColor: '#FFD700' + '15' }]}>
+              {subscription?.plan === 'premium' ? (
+                <Crown size={18} color="#FFD700" />
+              ) : (
+                <CreditCard size={18} color={colors.primary} />
+              )}
+            </View>
+            <View style={{ flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+              <Text style={[styles.menuLabel, { color: colors.text }]}>{t('your_subscription')}</Text>
+              <View style={[styles.badge, { backgroundColor: subscription?.plan === 'premium' ? '#FFD700' : colors.primary + '20' }]}>
+                <Text style={[styles.badgeText, { color: subscription?.plan === 'premium' ? '#000' : colors.primary }]}>
+                  {subscription?.plan === 'premium' ? t('premium') : t('subscribe')}
+                </Text>
+              </View>
+            </View>
           </Pressable>
 
           <Pressable 
@@ -402,5 +441,16 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     marginLeft: 10,
     color: '#DC3545',
+  },
+  badge: {
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+    borderRadius: 8,
+    marginLeft: 8,
+  },
+  badgeText: {
+    fontSize: 11,
+    fontWeight: '700',
+    textTransform: 'uppercase',
   },
 });

@@ -15,8 +15,13 @@ import {
   LogOut, 
   ArrowRightCircle,
   LayoutGrid,
-  Globe
+  Globe,
+  Crown,
+  Zap,
+  Sparkles
 } from 'lucide-react-native';
+import { SubscriptionService, SubscriptionStatus } from '@/services/SubscriptionService';
+import { useState, useEffect } from 'react';
 
 const SectionHeader = ({ title }: { title: string }) => {
   const { colors } = useTheme();
@@ -55,8 +60,26 @@ export default function SettingsScreen() {
   const { user, signOut } = useAuth();
   const { t } = useTranslation();
   const router = useRouter();
+  const [subscription, setSubscription] = useState<SubscriptionStatus | null>(null);
+
+  useEffect(() => {
+    const fetchSubscription = async () => {
+      try {
+        const status = await SubscriptionService.getStatus();
+        setSubscription(status);
+      } catch (error) {
+        console.error('Failed to fetch subscription status:', error);
+      }
+    };
+
+    if (user) {
+      fetchSubscription();
+    }
+  }, [user]);
 
   if (!user) return null;
+
+  const isPremium = (subscription?.plan === 'premium' && subscription?.status === 'active') || user?.isPremium;
 
   return (
     <View style={[styles.container, { backgroundColor: colors.background }]}>
@@ -89,6 +112,25 @@ export default function SettingsScreen() {
             </View>
           </View>
         </Pressable>
+
+        {/* Premium Banner (for non-premium users) */}
+        {!isPremium && (
+          <Pressable 
+            onPress={() => router.push('/settings/subscription')}
+            style={styles.premiumBanner}
+          >
+            <View style={styles.premiumBannerContent}>
+              <View style={styles.premiumIconBox}>
+                <Crown size={24} color="#000" />
+              </View>
+              <View style={styles.premiumInfo}>
+                <Text style={styles.premiumTitle}>{t('upgrade_banner_title')}</Text>
+                <Text style={styles.premiumSubtitle}>{t('upgrade_banner_desc')}</Text>
+              </View>
+              <ArrowRightCircle size={22} color="#000" />
+            </View>
+          </Pressable>
+        )}
 
         {/* Insights */}
         <Pressable style={[styles.insightsCard, { backgroundColor: colors.surface, borderColor: colors.border }]}>
@@ -129,6 +171,14 @@ export default function SettingsScreen() {
           icon={<Lock size={20} color={colors.text} />}
           onPress={() => router.push('/settings/account')}
         />
+        {isPremium && (
+          <SettingRow 
+            label={t('premium')} 
+            description={t('subscription_desc')}
+            icon={<Crown size={20} color="#FFD700" />}
+            onPress={() => router.push('/settings/subscription')}
+          />
+        )}
 
         {/* Privacy */}
         <SectionHeader title={t('settings_privacy_section')} />
@@ -222,4 +272,46 @@ const styles = StyleSheet.create({
   rowContent: { flex: 1 },
   rowLabel: { fontSize: 15, fontWeight: '700' },
   rowDescription: { fontSize: 12, marginTop: 2 },
+  
+  premiumBanner: {
+    backgroundColor: '#FFD700', 
+    borderRadius: 24,
+    marginBottom: 28,
+    overflow: 'hidden',
+    padding: 18,
+    // Higher elevation for premium feel
+    elevation: 8,
+    shadowColor: '#FFD700',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 10,
+  },
+  premiumBannerContent: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  premiumIconBox: {
+    width: 48,
+    height: 48,
+    borderRadius: 14,
+    backgroundColor: 'rgba(0, 0, 0, 0.1)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginRight: 16,
+  },
+  premiumInfo: {
+    flex: 1,
+  },
+  premiumTitle: {
+    color: '#000',
+    fontSize: 17,
+    fontWeight: '900',
+    marginBottom: 2,
+  },
+  premiumSubtitle: {
+    color: 'rgba(0, 0, 0, 0.6)',
+    fontSize: 13,
+    fontWeight: '500',
+    lineHeight: 18,
+  },
 });

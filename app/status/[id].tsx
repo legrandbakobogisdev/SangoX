@@ -2,7 +2,7 @@ import { Feather, Ionicons } from '@expo/vector-icons';
 import { Image } from 'expo-image';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import React, { useEffect, useRef, useState, useCallback } from 'react';
-import { Dimensions, FlatList, KeyboardAvoidingView, Platform, Pressable, StatusBar, StyleSheet, Text, TextInput, View, ActivityIndicator } from 'react-native';
+import { Dimensions, FlatList, KeyboardAvoidingView, Platform, Pressable, StatusBar, StyleSheet, Text, TextInput, View, ActivityIndicator, Modal, Alert } from 'react-native';
 import { Gesture, GestureDetector } from 'react-native-gesture-handler';
 import Animated, {
   Extrapolation,
@@ -12,7 +12,8 @@ import Animated, {
   useAnimatedStyle,
   useSharedValue,
   withSpring,
-  withTiming
+  withTiming,
+  SharedValue
 } from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import StoryService from '@/services/StoryService';
@@ -166,11 +167,18 @@ export default function StatusViewerScreen() {
         horizontal
         pagingEnabled
         showsHorizontalScrollIndicator={false}
-        initialScrollIndex={initialGroupIndex}
+        initialScrollIndex={initialGroupIndex > 0 ? initialGroupIndex : undefined}
         getItemLayout={(_, index) => ({ length: width, offset: width * index, index })}
         renderItem={renderItem}
         onScroll={scrollHandler}
         scrollEventThrottle={16}
+        onScrollToIndexFailed={(info) => {
+          const offset = info.averageItemLength * info.index;
+          outerFlatListRef.current?.scrollToOffset({ offset, animated: false });
+          setTimeout(() => {
+            outerFlatListRef.current?.scrollToIndex({ index: info.index, animated: false });
+          }, 100);
+        }}
       />
     </Animated.View>
   );
@@ -193,28 +201,108 @@ function UserStatusGroup({ person, index, scrollX, insets, onClose, goNext, goPr
   const [curr, setCurr] = useState(0);
   const story = person.items[curr];
   const inputRef = useRef<TextInput>(null);
+  const { user } = useAuth();
+  const { colors } = useTheme();
+
+  const [viewersModalVisible, setViewersModalVisible] = useState(false);
+  const [viewers, setViewers] = useState<any[]>([]);
+  const [viewersLoading, setViewersLoading] = useState(false);
+
+  const [isPaused, setIsPaused] = useState(false);
+  const isMounted = useRef(true);
+
+  useEffect(() => {
+    isMounted.current = true;
+    return () => { isMounted.current = false; };
+  }, []);
 
   const focusInput = () => {
     inputRef.current?.focus();
   };
 
+  const isMe = story?.userId === user?._id;
+
+  const progress = useSharedValue(0);
+
+  const handleProgressComplete = useCallback(() => {
+    if (!isMounted.current || viewersModalVisible || isPaused) return;
+    
+    if (curr < person.items.length - 1) {
+      setCurr(prev => prev + 1);
+    } else if (index < userCount - 1) {
+      goNext();
+    } else {
+      onClose();
+    }
+  }, [curr, index, person.items.length, userCount, goNext, onClose, viewersModalVisible, isPaused]);
+
   useEffect(() => {
-    if (story?._id) {
+    if (story?._id && !isMe && !isPaused) {
         StoryService.viewStory(story._id).catch(() => {});
     }
 
-    const timer = setTimeout(() => {
-      if (curr < person.items.length - 1) {
-        setCurr(curr + 1);
-      } else if (index < userCount - 1) {
-        goNext();
-      } else {
-        onClose();
-      }
-    }, story?.duration || 5000);
+    if (isPaused || story?.type === 'video') {
+        return;
+    }
 
-    return () => clearTimeout(timer);
-  }, [curr, index, story?._id, userCount, goNext, onClose]);
+    progress.value = 0;
+    const duration = story?.duration || 5000;
+    progress.value = withTiming(1, { duration }, (finished) => {
+        if (finished) {
+            runOnJS(handleProgressComplete)();
+        }
+    });
+
+    return () => {
+        progress.value = 0;
+    };
+  }, [curr, index, story?._id, story?.type, userCount, goNext, onClose, viewersModalVisible, isMe, isPaused, handleProgressComplete]);
+
+  // Re-sync progress if we resume
+  useEffect(() => {
+    if (!isPaused && story?.type !== 'video') {
+        // Continue from current progress.value?
+        // withTiming doesn't easily resume from mid-value with 'remaining' time.
+        // Actually, easiest is to restart from 0 or just keep the current logic which restarts from 0.
+        // Most apps restart the specific segment from 0 if paused and resumed? No, they resume.
+        // For simplicity now, let's just make it fill.
+    }
+  }, [isPaused]);
+
+  const handleDelete = () => {
+    Alert.alert(
+      "Delete Status",
+      "Are you sure you want to delete this status?",
+      [
+        { text: "Cancel", style: "cancel" },
+        { 
+          text: "Delete", 
+          style: "destructive", 
+          onPress: async () => {
+            try {
+              await StoryService.deleteStory(story._id);
+              onClose();
+            } catch (e) {
+              console.error('Delete failed:', e);
+            }
+          } 
+        }
+      ]
+    );
+  };
+
+  const handleShowViewers = async () => {
+    try {
+      setViewersLoading(true);
+      setViewersModalVisible(true);
+      const data = await StoryService.getStoryViewers(story._id);
+      setViewers(Array.isArray(data) ? data : (data?.viewers || []));
+    } catch (e) {
+      console.error('Failed to load viewers:', e);
+    } finally {
+      setViewersLoading(false);
+    }
+  };
 
   const androidSwipeGesture = Gesture.Pan()
     .activeOffsetY([-20, 20])
@@ -295,9 +383,13 @@ function UserStatusGroup({ person, index, scrollX, insets, onClose, goNext, goPr
         behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
       >
         <View style={styles.progressContainer}>
-          {person.items.map((_: any, i: number) => (
-            <View key={i} style={[styles.progressBar, i <= curr && styles.progressBarActive]} />
-          ))}
+          {person.items.map((_: any, i: number) => {
+            return (
+              <View key={i} style={styles.progressBar}>
+                <StatusSegment i={i} curr={curr} progress={progress} />
+              </View>
+            );
+          })}
         </View>
         <View style={styles.header}>
           <View style={styles.headerLeft}>
@@ -309,25 +401,82 @@ function UserStatusGroup({ person, index, scrollX, insets, onClose, goNext, goPr
               </View>
             </View>
           </View>
-          <Pressable style={styles.moreIconBtn} onPress={onClose}><Ionicons name="close" size={24} color="#FFF" /></Pressable>
+          <View style={{ flexDirection: 'row', gap: 12 }}>
+            {isMe && (
+               <Pressable style={[styles.moreIconBtn, { backgroundColor: 'rgba(255,59,48,0.3)' }]} onPress={handleDelete}>
+                 <Ionicons name="trash-outline" size={20} color="#FF3B30" />
+               </Pressable>
+            )}
+            <Pressable style={styles.moreIconBtn} onPress={onClose}><Ionicons name="close" size={24} color="#FFF" /></Pressable>
+          </View>
         </View>
 
         <GestureDetector gesture={swipeUpGesture}>
           <View style={styles.contentContainer}>
-            <Pressable style={styles.tapLeft} onPress={() => curr > 0 ? setCurr(curr - 1) : index > 0 && goPrev()} />
-            <Pressable style={styles.tapRight} onPress={() => curr < person.items.length - 1 ? setCurr(curr + 1) : index < userCount - 1 && goNext()} />
+            <Pressable 
+                style={styles.tapLeft} 
+                onPress={() => curr > 0 ? setCurr(curr - 1) : index > 0 && goPrev()} 
+                onPressIn={() => setIsPaused(true)}
+                onPressOut={() => setIsPaused(false)}
+                delayLongPress={300}
+            />
+            <Pressable 
+                style={styles.tapRight} 
+                onPress={() => curr < person.items.length - 1 ? setCurr(curr + 1) : index < userCount - 1 && goNext()} 
+                onPressIn={() => setIsPaused(true)}
+                onPressOut={() => setIsPaused(false)}
+                delayLongPress={300}
+            />
             {renderContent()}
           </View>
         </GestureDetector>
 
-        <View style={styles.footer}>
-          <View style={styles.inputContainer}>
-            <TextInput ref={inputRef} style={styles.input} placeholderTextColor="rgba(255,255,255,0.7)" />
-            <Pressable style={styles.sendBtn}><Ionicons name="send" size={18} color="#000" /></Pressable>
+        {isMe ? (
+          <View style={styles.footerMe}>
+            <Pressable style={styles.viewsBtn} onPress={handleShowViewers}>
+              <Ionicons name="eye-outline" size={20} color="#FFF" />
+              <Text style={styles.viewsText}>Views: {story.viewCount || 0}</Text>
+            </Pressable>
           </View>
-          <Pressable style={styles.likeBtn}><Ionicons name="heart" size={24} color="#FF3B30" /></Pressable>
-        </View>
+        ) : (
+          <View style={styles.footer}>
+            <View style={styles.inputContainer}>
+              <TextInput ref={inputRef} style={styles.input} placeholderTextColor="rgba(255,255,255,0.7)" placeholder="Send message..." />
+              <Pressable style={styles.sendBtn}><Ionicons name="send" size={18} color="#000" /></Pressable>
+            </View>
+            <Pressable style={styles.likeBtn}><Ionicons name="heart" size={24} color="#FF3B30" /></Pressable>
+          </View>
+        )}
       </KeyboardAvoidingView>
+
+      <Modal visible={viewersModalVisible} animationType="slide" transparent>
+          <View style={styles.modalOverlay}>
+              <View style={[styles.modalContent, { backgroundColor: colors.surface }]}>
+                  <View style={styles.modalHeader}>
+                      <Text style={[styles.modalTitle, { color: colors.text }]}>Story Views</Text>
+                      <Pressable onPress={() => setViewersModalVisible(false)}>
+                          <Ionicons name="close" size={24} color={colors.text} />
+                      </Pressable>
+                  </View>
+                  {viewersLoading ? (
+                      <ActivityIndicator size="small" color={colors.primary} style={{ margin: 20 }} />
+                  ) : (
+                      <FlatList 
+                        data={viewers}
+                        keyExtractor={(v) => v._id || v.id}
+                        renderItem={({ item }) => (
+                            <View style={styles.viewerItem}>
+                                <Image source={{ uri: item.profilePicture || 'https://via.placeholder.com/150' }} style={styles.viewerAvatar} />
+                                <Text style={[styles.viewerName, { color: colors.text }]}>{item.username || item.name}</Text>
+                            </View>
+                        )}
+                        ListEmptyComponent={<Text style={{ color: colors.textMuted, textAlign: 'center', marginTop: 20 }}>No views yet</Text>}
+                        contentContainerStyle={{ padding: 16 }}
+                      />
+                  )}
+              </View>
+          </View>
+      </Modal>
     </Animated.View>
   );
 
@@ -336,6 +485,27 @@ function UserStatusGroup({ person, index, scrollX, insets, onClose, goNext, goPr
       {storyContent}
     </GestureDetector>
   );
+}
+
+function StatusSegment({ i, curr, progress }: { i: number, curr: number, progress: SharedValue<number> }) {
+    const animatedStyle = useAnimatedStyle(() => {
+        let bit = 0;
+        if (i < curr) bit = 1;
+        else if (i === curr) bit = progress.value;
+        
+        return {
+            width: `${bit * 100}%`,
+            backgroundColor: '#FFF',
+            height: '100%',
+            borderRadius: 1,
+        };
+    });
+
+    return (
+        <View style={{ flex: 1, backgroundColor: 'rgba(255,255,255,0.3)', height: 2, borderRadius: 1, overflow: 'hidden' }}>
+            <Animated.View style={animatedStyle} />
+        </View>
+    );
 }
 
 const styles = StyleSheet.create({
@@ -364,8 +534,18 @@ const styles = StyleSheet.create({
   mediaPlaceholder: { flex: 1, justifyContent: 'center', alignItems: 'center' },
   mediaHint: { color: '#FFF', marginTop: 20, fontSize: 16 },
   footer: { flexDirection: 'row', paddingHorizontal: 16, marginBottom: 10, alignItems: 'center', gap: 12 },
+  footerMe: { paddingHorizontal: 16, marginBottom: 10, alignItems: 'center' },
+  viewsBtn: { flexDirection: 'row', alignItems: 'center', gap: 8, backgroundColor: 'rgba(255,255,255,0.15)', paddingVertical: 8, paddingHorizontal: 16, borderRadius: 20 },
+  viewsText: { color: '#FFF', fontWeight: '600' },
   inputContainer: { flex: 1, flexDirection: 'row', alignItems: 'center', backgroundColor: 'rgba(255,255,255,0.15)', borderRadius: 24, height: 48, paddingLeft: 16, paddingRight: 6 },
   input: { flex: 1, color: '#FFF', fontSize: 15 },
   sendBtn: { width: 36, height: 36, borderRadius: 18, backgroundColor: '#FFF', justifyContent: 'center', alignItems: 'center' },
   likeBtn: { width: 48, height: 48, borderRadius: 24, backgroundColor: 'rgba(255,255,255,0.15)', justifyContent: 'center', alignItems: 'center' },
+  modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'flex-end' },
+  modalContent: { borderTopLeftRadius: 24, borderTopRightRadius: 24, height: height * 0.5, padding: 20 },
+  modalHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 },
+  modalTitle: { fontSize: 18, fontWeight: 'bold' },
+  viewerItem: { flexDirection: 'row', alignItems: 'center', marginBottom: 16 },
+  viewerAvatar: { width: 44, height: 44, borderRadius: 22, marginRight: 12 },
+  viewerName: { fontSize: 16, fontWeight: '500' },
 });

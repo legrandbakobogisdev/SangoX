@@ -1,11 +1,12 @@
-import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
-import AsyncStorage from '@react-native-async-storage/async-storage';
-import { Alert } from 'react-native';
 import { useAuthApi } from '@/hooks/useAuthApi';
+import i18n from '@/i18n';
+import { ApiService } from '@/services/api';
 import { E2EEService } from '@/services/E2EEService';
 import NotificationService from '@/services/NotificationService';
-import { ApiService } from '@/services/api';
-import i18n from '@/i18n';
+import SocketService from '@/services/SocketService';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import React, { createContext, useCallback, useContext, useEffect, useState } from 'react';
+import { Alert } from 'react-native';
 
 export interface User {
   id: string;
@@ -21,6 +22,7 @@ export interface User {
   role: string;
   isActive: boolean;
   isVerified: boolean;
+  isPremium?: boolean;
   settings: {
     privacy: {
       lastSeen: string;
@@ -135,10 +137,36 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     ApiService.setOnTokenRefresh((newToken: string) => {
       console.log('[AuthContext] Token refreshed, updating state...');
       setAccessToken(newToken);
+      // Notify SocketService of the new token
+      SocketService.updateToken(newToken);
     });
+
+    // LISTEN FOR REAL-TIME PREMIUM STATUS UPDATES
+    const handlePremiumUpdate = (data: { isPremium: boolean }) => {
+      console.log('[AuthContext] Received premium_updated event:', data);
+      if (data.isPremium) {
+        setUser(prev => {
+          if (!prev) return null;
+          const updatedUser = { ...prev, isPremium: true };
+          AsyncStorage.setItem(USER_STORAGE_KEY, JSON.stringify(updatedUser)).catch(err => {
+            console.error('[AuthContext] Error persisting premium status:', err);
+          });
+          return updatedUser;
+        });
+        
+        Alert.alert(
+          i18n.t('success'), 
+          i18n.t('already_subscribed'),
+          [{ text: 'OK' }]
+        );
+      }
+    };
+
+    SocketService.on('premium_updated', handlePremiumUpdate);
 
     return () => {
       ApiService.setOnTokenRefresh(() => {});
+      SocketService.off('premium_updated', handlePremiumUpdate);
     };
   }, []);
 

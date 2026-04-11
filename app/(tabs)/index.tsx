@@ -1,19 +1,17 @@
-import React, { useState } from 'react';
-import { StyleSheet, View, Text, FlatList, ScrollView, Animated, Pressable, Image, Platform, Modal } from 'react-native';
-import { useRouter } from 'expo-router';
-import { useTranslation } from 'react-i18next';
-import { useTheme } from '@/context/ThemeContext';
-import { Spacing, BorderRadius } from '@/constants/theme';
-import { MoreHorizontal, MessageSquarePlus, MessageSquare, Users, UserPlus } from 'lucide-react-native';
-import { StoryCircle } from '@/components/chat/StoryCircle';
 import { ChatItem } from '@/components/chat/ChatItem';
-import { CHATS, STORIES } from '@/constants/MockData';
-import { SafeAreaView } from 'react-native-safe-area-context';
-import { RefreshControl } from 'react-native';
-import { useChat } from '@/context/ChatContext';
+import { StoryCircle } from '@/components/chat/StoryCircle';
+import { Spacing } from '@/constants/theme';
 import { useAuth } from '@/context/AuthContext';
+import { useChat } from '@/context/ChatContext';
+import { useTheme } from '@/context/ThemeContext';
+import SocketService from '@/services/SocketService';
 import StoryService from '@/services/StoryService';
-import { useCallback, useEffect } from 'react';
+import { useRouter } from 'expo-router';
+import { MoreHorizontal } from 'lucide-react-native';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
+import { useTranslation } from 'react-i18next';
+import { Modal, Pressable, RefreshControl, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 
 export default function ChatsScreen() {
   const { t } = useTranslation();
@@ -25,48 +23,49 @@ export default function ChatsScreen() {
   const [menuVisible, setMenuVisible] = useState(false);
   const [activeStories, setActiveStories] = useState<any[]>([]);
 
+  const lastFetchedIdsRef = useRef<string>('');
+  const conversationsRef = useRef(conversations);
+  conversationsRef.current = conversations;
+
   const fetchStories = useCallback(async () => {
-    // We need at least the user to fetch stories (for option 1 orchestration)
     if (!user?._id) return;
 
     try {
-      // Collect IDs from all conversation participants + current user
       const participantIds = new Set<string>();
       participantIds.add(user._id);
       
-      if (conversations && conversations.length > 0) {
-        conversations.forEach(chat => {
+      const convs = conversationsRef.current;
+      if (convs && convs.length > 0) {
+        convs.forEach(chat => {
           if (chat.participants && Array.isArray(chat.participants)) {
-            chat.participants.forEach((pId: string) => participantIds.add(pId));
+            chat.participants.forEach((pId: any) => {
+                const idStr = typeof pId === 'string' ? pId : pId?._id || pId?.id;
+                if (idStr) participantIds.add(idStr);
+            });
           }
         });
       }
 
-      const idsArray = Array.from(participantIds);
-      console.log('[fetchStories] Fetching for IDs:', idsArray.length, idsArray);
+      const idsArray = Array.from(participantIds).sort();
+      const currentIdsStr = JSON.stringify(idsArray);
+      
+      if (currentIdsStr === lastFetchedIdsRef.current) {
+        return;
+      }
+      lastFetchedIdsRef.current = currentIdsStr;
 
       const data = await StoryService.getActiveStories(idsArray);
-      console.log('[fetchStories] Received data type:', Array.isArray(data) ? 'Array' : typeof data);
-      
-      const rawStories = Array.isArray(data) ? data : (data?.stories || data?.data || []);
-      
-      // Handle the provided nested structure: [{ userId, stories: [] }, ...]
-      const userStoriesMap = new Map<string, any>();
-      
-      // rawData is the 'data' array from the JSON response
       const rawData = Array.isArray(data) ? data : (data?.data || data?.stories || []);
       
+      const userStoriesMap = new Map<string, any>();
       rawData.forEach((userGroup: any) => {
         const userId = userGroup.userId || userGroup._id;
         const groupStories = userGroup.stories || [];
 
         if (userId && groupStories.length > 0) {
-          // Take the most recent story as the representative (assuming they are sorted)
           const latestStory = groupStories[0];
-          
           let unseenCount = 0;
           groupStories.forEach((s: any) => {
-             // Assuming if 'viewers' is missing, it's unseen. If present, check for current user ID.
              const isViewed = s.viewers && Array.isArray(s.viewers) ? s.viewers.includes(user._id) : (s.isViewed || false);
              if (!isViewed) unseenCount++;
           });
@@ -81,18 +80,43 @@ export default function ChatsScreen() {
       });
 
       const groupedStories = Array.from(userStoriesMap.values());
-      console.log('[fetchStories] Grouped total users:', groupedStories.length);
       setActiveStories(groupedStories);
     } catch (e) {
       console.error('[fetchStories] Error:', e);
     }
-  }, [conversations, user?._id]);
+  }, [user?._id]);
 
+  // Fetch on mount and when user changes
   useEffect(() => {
     if (user?._id) {
-      fetchStories();
+       fetchStories();
     }
   }, [user?._id, fetchStories]);
+
+  // Re-fetch when conversations list actually changes (new contacts)
+  useEffect(() => {
+    if (user?._id && conversations.length > 0) {
+      lastFetchedIdsRef.current = ''; // Allow re-check
+      fetchStories();
+    }
+  }, [conversations.length, user?._id]);
+
+  useEffect(() => {
+    const handleStoryUpdate = () => {
+        lastFetchedIdsRef.current = ''; // Reset to force update
+        fetchStories();
+    };
+
+    SocketService.on('story_new', handleStoryUpdate);
+    SocketService.on('story_deleted', handleStoryUpdate);
+    SocketService.on('story_view_update', handleStoryUpdate);
+
+    return () => {
+        SocketService.off('story_new', handleStoryUpdate);
+        SocketService.off('story_deleted', handleStoryUpdate);
+        SocketService.off('story_view_update', handleStoryUpdate);
+    };
+  }, [fetchStories]);
 
   const handleRefresh = useCallback(async () => {
     await Promise.all([
@@ -150,7 +174,7 @@ export default function ChatsScreen() {
                                 || story.content 
                                 || 'https://via.placeholder.com/150';
 
-            console.log(`[fetchStories] User ${displayName} has ${story.storyCount || 1} story(ies)`);
+
 
             return (
               <StoryCircle 
@@ -230,6 +254,8 @@ export default function ChatsScreen() {
           {filteredConversations.map(chat => {
             const partnerId = chat.type === 'individual' ? chat.participants.find(p => p !== user?._id) : null;
             const isOnline = partnerId ? onlineUsers[partnerId] : false;
+            const isLastMessageFromMe = chat.lastMessage?.senderId === user?._id;
+            
             return (
               <ChatItem 
                 key={chat._id} 
@@ -242,6 +268,8 @@ export default function ChatsScreen() {
                 online={isOnline}
                 isTyping={typingStatus[chat._id]}
                 onArchive={toggleArchive}
+                messageStatus={chat.lastMessage?.status as 'sent' | 'delivered' | 'read' | undefined}
+                isLastMessageFromMe={isLastMessageFromMe}
               />
             );
           })}

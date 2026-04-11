@@ -4,6 +4,9 @@ export interface StoryPayload {
   type: string;
   content: string;
   mediaParams?: any;
+  visibility?: 'my_contacts' | 'my_contacts_except' | 'only_share_with';
+  excludedViewers?: string[];
+  allowedViewers?: string[];
 }
 
 class StoryService {

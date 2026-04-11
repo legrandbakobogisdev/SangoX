@@ -1,22 +1,22 @@
 import { BorderRadius, Spacing } from '@/constants/theme';
+import { useAuth } from '@/context/AuthContext';
+import { useChat } from '@/context/ChatContext';
 import { useTheme } from '@/context/ThemeContext';
+import SocketService from '@/services/SocketService';
+import { Ionicons } from '@expo/vector-icons';
 import BottomSheet, { BottomSheetBackdrop, BottomSheetView } from '@gorhom/bottom-sheet';
 import { BlurView } from 'expo-blur';
+import * as ExpoClipboard from 'expo-clipboard';
+import * as Haptics from 'expo-haptics';
+import { Image } from 'expo-image';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { ChevronLeft, Copy, Forward, MoreVertical, Paperclip, Phone, Reply, Send, Smile, Trash2, Video } from 'lucide-react-native';
 import React, { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Animated, ActivityIndicator, Dimensions, FlatList, Keyboard, Modal, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
-import { Image } from 'expo-image';
-import * as Haptics from 'expo-haptics';
-import * as ExpoClipboard from 'expo-clipboard';
-import { Ionicons } from '@expo/vector-icons';
+import { useTranslation } from 'react-i18next';
+import { ActivityIndicator, Animated, Dimensions, FlatList, Keyboard, Modal, Platform, Pressable, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
 import { Swipeable } from 'react-native-gesture-handler';
 import AnimatedRN, { FadeInDown } from 'react-native-reanimated';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
-import { useChat } from '@/context/ChatContext';
-import { useAuth } from '@/context/AuthContext';
-import SocketService from '@/services/SocketService';
-import { useTranslation } from 'react-i18next';
 
 const REACTION_EMOJIS = ['🔥', '🙌', '😭', '🙈', '🙏', '😤'];
 
@@ -25,11 +25,11 @@ export default function ChatDetailScreen() {
   const { t } = useTranslation();
   const { colors } = useTheme();
   const { user } = useAuth();
-  const { 
-    conversations, 
-    messages, 
+  const {
+    conversations,
+    messages,
     activeConversation,
-    setActiveConversation, 
+    setActiveConversation,
     sendMessage,
     startTyping,
     stopTyping,
@@ -44,21 +44,21 @@ export default function ChatDetailScreen() {
     deleteMessage,
     loading,
   } = useChat();
-  
+
   const router = useRouter();
   const flatListRef = useRef<FlatList>(null);
   const insets = useSafeAreaInsets();
 
-  const chat = useMemo(() => 
-    conversations.find(c => c._id === id), 
+  const chat = useMemo(() =>
+    conversations.find(c => c._id === id),
     [conversations, id]
   );
 
-  const partnerId = useMemo(() => 
+  const partnerId = useMemo(() =>
     chat?.participants?.find((p: string) => p !== user?._id),
     [chat, user]
   );
-  
+
   const isPartnerOnline = partnerId ? onlineUsers[partnerId] : false;
 
   useEffect(() => {
@@ -84,7 +84,7 @@ export default function ChatDetailScreen() {
   const [menuVisible, setMenuVisible] = useState(false);
   const typingTimeoutRef = useRef<any>(null);
   const inputRef = useRef<TextInput>(null);
-  
+
   // Bottom Sheet Refs
   const bottomSheetRef = useRef<BottomSheet>(null);
   const emojiSheetRef = useRef<BottomSheet>(null);
@@ -136,32 +136,35 @@ export default function ChatDetailScreen() {
 
     // Join room for messaging
     SocketService.joinConversation(String(id));
-    
+
     // Partner ID for typing
     const partnerId = chat?.participants?.find(p => p !== user?._id);
 
     const handleTypingStart = (data: any) => {
-        if (String(data.conversationId) === String(id) && String(data.userId) === String(partnerId)) {
-            setIsPartnerTyping(true);
-        }
+      if (String(data.conversationId) === String(id) && String(data.userId) === String(partnerId)) {
+        setIsPartnerTyping(true);
+      }
     };
 
     const handleTypingStop = (data: any) => {
-        if (String(data.conversationId) === String(id) && String(data.userId) === String(partnerId)) {
-            setIsPartnerTyping(false);
-        }
+      if (String(data.conversationId) === String(id) && String(data.userId) === String(partnerId)) {
+        setIsPartnerTyping(false);
+      }
     };
 
     SocketService.on('user_typing_start', handleTypingStart);
     SocketService.on('user_typing_stop', handleTypingStop);
 
     return () => {
-        if (typingTimeoutRef.current) clearTimeout(typingTimeoutRef.current);
-        SocketService.off('user_typing_start', handleTypingStart);
-        SocketService.off('user_typing_stop', handleTypingStop);
-        SocketService.leaveConversation(String(id));
+      if (typingTimeoutRef.current) clearTimeout(typingTimeoutRef.current);
+      // Ensure we stop typing status when leaving the screen
+      if (id) SocketService.stopTyping(String(id));
+      
+      SocketService.off('user_typing_start', handleTypingStart);
+      SocketService.off('user_typing_stop', handleTypingStop);
+      SocketService.leaveConversation(String(id));
     };
-  }, [id, user, chat, t]);
+  }, [id, user?._id, chat?.participants]);
 
   // Typing emitter with automatic 3.5s stop
   const lastTypingTime = useRef<number>(0);
@@ -174,32 +177,32 @@ export default function ChatDetailScreen() {
 
     const now = Date.now();
     if (text.length > 0) {
-        // 2. Start (or re-start if > 2s since last start emission)
-        if (now - lastTypingTime.current > 1000) {
-            SocketService.startTyping(String(id));
-            lastTypingTime.current = now;
-        }
+      // 2. Start (or re-start if > 2s since last start emission)
+      if (now - lastTypingTime.current > 1000) {
+        SocketService.startTyping(String(id));
+        lastTypingTime.current = now;
+      }
 
-        // 3. Set automatic stop timer
-        typingTimeoutRef.current = setTimeout(() => {
-            SocketService.stopTyping(String(id));
-            lastTypingTime.current = 0;
-        }, 1500); // 1.5s of inactivity
-    } else {
-        // 4. Force stop on clear
+      // 3. Set automatic stop timer
+      typingTimeoutRef.current = setTimeout(() => {
         SocketService.stopTyping(String(id));
         lastTypingTime.current = 0;
+      }, 2000); // 2s of inactivity
+    } else {
+      // 4. Force stop on clear
+      SocketService.stopTyping(String(id));
+      lastTypingTime.current = 0;
     }
   };
 
   const handleLongPress = useCallback((msg: any, event: any) => {
     setSelectedMessage(msg);
     const { pageY } = event.nativeEvent;
-    
+
     // Position near the touch point, ensuring it doesn't go offscreen at the bottom
     const top = Math.min(pageY, Dimensions.get('window').height - 280);
     const isMine = msg.senderId === user?._id;
-    
+
     setMenuPosition({ top, isMine });
     setActionMenuVisible(true);
   }, [user?._id]);
@@ -222,9 +225,11 @@ export default function ChatDetailScreen() {
       setInput('');
       setReplyToMessage(null);
       setEditingMessage(null);
-      
+
       // Stop typing indicator immediately after sending
+      if (typingTimeoutRef.current) clearTimeout(typingTimeoutRef.current);
       if (id) stopTyping(String(id));
+      lastTypingTime.current = 0;
     } catch (error) {
       console.error('Failed to send/edit message:', error);
     }
@@ -247,11 +252,11 @@ export default function ChatDetailScreen() {
   const handleDelete = async (msg: any) => {
     if (!msg) return;
     try {
-        await deleteMessage(msg._id);
-        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
-        setActionMenuVisible(false);
+      await deleteMessage(msg._id);
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
+      setActionMenuVisible(false);
     } catch (e) {
-        console.error('Delete failed:', e);
+      console.error('Delete failed:', e);
     }
   };
 
@@ -318,31 +323,31 @@ export default function ChatDetailScreen() {
             style={({ pressed }) => [styles.backBtn, pressed && { opacity: 0.6 }]}
             android_ripple={{ color: colors.border, radius: 20 }}
           >
-              <ChevronLeft size={26} color={colors.text} />
-            </Pressable>
-  
-            {/* Avatar + User Info */}
-            <Pressable 
-              style={styles.userInfoRow}
-              onPress={() => router.push({ pathname: '/chat/profile', params: { id } })}
-            >
-              {chat?.image || chat?.groupMetadata?.icon ? (
-                <Image source={{ uri: chat?.image || chat?.groupMetadata?.icon }} style={styles.headerAvatar} />
-              ) : (
-                <View style={[styles.headerAvatarPlaceholder, { backgroundColor: colors.secondary }]} />
-              )}
-              <View style={styles.userInfo}>
-                <Text style={[styles.userName, { color: colors.text }]} numberOfLines={1}>
-                    {chat?.name || (chat?.type === 'individual' ? t('chat') : (chat?.groupMetadata?.name || t('group')))}
-                </Text>
-                <Text style={[
-                    styles.status, 
-                    { color: isPartnerTyping ? colors.primary : (isPartnerOnline ? colors.success : colors.textMuted) }
-                ]}>
-                    {isPartnerTyping ? t('typing') : (isPartnerOnline ? t('online') : t('offline'))}
-                </Text>
-              </View>
-            </Pressable>
+            <ChevronLeft size={26} color={colors.text} />
+          </Pressable>
+
+          {/* Avatar + User Info */}
+          <Pressable
+            style={styles.userInfoRow}
+            onPress={() => router.push({ pathname: '/chat/profile', params: { id } })}
+          >
+            {chat?.image || chat?.groupMetadata?.icon ? (
+              <Image source={{ uri: chat?.image || chat?.groupMetadata?.icon }} style={styles.headerAvatar} />
+            ) : (
+              <View style={[styles.headerAvatarPlaceholder, { backgroundColor: colors.secondary }]} />
+            )}
+            <View style={styles.userInfo}>
+              <Text style={[styles.userName, { color: colors.text }]} numberOfLines={1}>
+                {chat?.name || (chat?.type === 'individual' ? t('chat') : (chat?.groupMetadata?.name || t('group')))}
+              </Text>
+              <Text style={[
+                styles.status,
+                { color: isPartnerTyping ? colors.primary : (isPartnerOnline ? colors.success : colors.textMuted) }
+              ]}>
+                {isPartnerTyping ? t('typing') : (isPartnerOnline ? t('online') : t('offline'))}
+              </Text>
+            </View>
+          </Pressable>
 
           <View style={styles.headerIcons}>
             <Pressable
@@ -366,155 +371,155 @@ export default function ChatDetailScreen() {
 
         {/* Pinned Message Bar (Telegram Style) */}
         {(pinnedMessages[String(id)] && pinnedMessages[String(id)].length > 0) && (
-            <View style={[styles.pinnedBar, { backgroundColor: colors.background, borderBottomColor: colors.border, maxHeight: 110 }]}>
-                <View style={[styles.pinnedIndicator, { backgroundColor: colors.primary }]} />
-                <FlatList
-                    data={pinnedMessages[String(id)]}
-                    horizontal
-                    pagingEnabled
-                    showsHorizontalScrollIndicator={false}
-                    keyExtractor={item => item._id}
-                    style={styles.pinnedContent}
-                    renderItem={({ item: pinnedMsg }) => (
-                        <View style={{ width: Dimensions.get('window').width - 48, flexDirection: 'row', alignItems: 'center', paddingVertical: 4 }}>
-                            <Pressable 
-                                onPress={() => {
-                                    const index = messages.findIndex(m => m._id === pinnedMsg._id);
-                                    if (index !== -1) flatListRef.current?.scrollToIndex({ index, animated: true });
-                                }}
-                                style={{ flex: 1, paddingRight: 8 }}
-                            >
-                                <Text style={[styles.pinnedTitle, { color: colors.primary }]}>{t('pinned_message', 'Message épinglé')}</Text>
-                                <Text numberOfLines={1} style={[styles.pinnedText, { color: colors.text }]}>
-                                    {pinnedMsg.content ?? 'Pin'}
-                                </Text>
-                            </Pressable>
-                            <Pressable onPress={() => pinMessage(String(id), pinnedMsg._id)} style={styles.pinnedClose}>
-                                <Ionicons name="close" size={18} color={colors.textMuted} />
-                            </Pressable>
-                        </View>
-                    )}
-                />
-            </View>
+          <View style={[styles.pinnedBar, { backgroundColor: colors.background, borderBottomColor: colors.border, maxHeight: 110 }]}>
+            <View style={[styles.pinnedIndicator, { backgroundColor: colors.primary }]} />
+            <FlatList
+              data={pinnedMessages[String(id)]}
+              horizontal
+              pagingEnabled
+              showsHorizontalScrollIndicator={false}
+              keyExtractor={item => item._id}
+              style={styles.pinnedContent}
+              renderItem={({ item: pinnedMsg }) => (
+                <View style={{ width: Dimensions.get('window').width - 48, flexDirection: 'row', alignItems: 'center', paddingVertical: 4 }}>
+                  <Pressable
+                    onPress={() => {
+                      const index = messages.findIndex(m => m._id === pinnedMsg._id);
+                      if (index !== -1) flatListRef.current?.scrollToIndex({ index, animated: true });
+                    }}
+                    style={{ flex: 1, paddingRight: 8 }}
+                  >
+                    <Text style={[styles.pinnedTitle, { color: colors.primary }]}>{t('pinned_message', 'Message épinglé')}</Text>
+                    <Text numberOfLines={1} style={[styles.pinnedText, { color: colors.text }]}>
+                      {pinnedMsg.content ?? 'Pin'}
+                    </Text>
+                  </Pressable>
+                  <Pressable onPress={() => pinMessage(String(id), pinnedMsg._id)} style={styles.pinnedClose}>
+                    <Ionicons name="close" size={18} color={colors.textMuted} />
+                  </Pressable>
+                </View>
+              )}
+            />
+          </View>
         )}
 
         {/* Only show full loader if we have absolutely nothing to show */}
         {loading && messages.length === 0 ? (
-            <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center' }}>
-                <ActivityIndicator size="large" color={colors.primary} />
-            </View>
+          <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center' }}>
+            <ActivityIndicator size="large" color={colors.primary} />
+          </View>
         ) : (
-            <FlatList
-              ref={flatListRef}
-              data={[...messages].reverse()}
-              keyExtractor={item => item._id}
-              contentContainerStyle={styles.messageList}
-              showsVerticalScrollIndicator={false}
-              inverted
-              keyboardShouldPersistTaps="handled"
-              keyboardDismissMode="interactive"
-              onEndReached={() => {}}
-              onEndReachedThreshold={0.2}
-              renderItem={({ item }) => {
-            const isSelf = item.senderId === user?._id;
-            const shouldAnimate = newlySentMessageId === item._id || item._id?.startsWith('local_');
-            return (
-              <MessageItem
-                item={item}
-                isMine={isSelf}
-                currentUser={user}
-                onLongPress={handleLongPress}
-                onReply={(m: any) => {
-                  setReplyToMessage(m);
-                  setEditingMessage(null);
-                  inputRef.current?.focus();
-                }}
-                shouldAnimate={shouldAnimate}
-                colors={colors}
-                editedText={t('edited', 'modifié')}
-                deletedTextMine={t('you_deleted_this_message', 'Vous avez supprimé ce message')}
-                deletedTextTheirs={t('this_message_deleted', 'Ce message a été supprimé')}
-              />
-            );
-          }}
-        />
+          <FlatList
+            ref={flatListRef}
+            data={[...messages].reverse()}
+            keyExtractor={(item, index) => `${item._id}-${index}`}
+            contentContainerStyle={styles.messageList}
+            showsVerticalScrollIndicator={false}
+            inverted
+            keyboardShouldPersistTaps="handled"
+            keyboardDismissMode="interactive"
+            onEndReached={() => { }}
+            onEndReachedThreshold={0.2}
+            renderItem={({ item }) => {
+              const isSelf = item.senderId === user?._id;
+              const shouldAnimate = newlySentMessageId === item._id || item._id?.startsWith('local_');
+              return (
+                <MessageItem
+                  item={item}
+                  isMine={isSelf}
+                  currentUser={user}
+                  onLongPress={handleLongPress}
+                  onReply={(m: any) => {
+                    setReplyToMessage(m);
+                    setEditingMessage(null);
+                    inputRef.current?.focus();
+                  }}
+                  shouldAnimate={shouldAnimate}
+                  colors={colors}
+                  editedText={t('edited', 'modifié')}
+                  deletedTextMine={t('you_deleted_this_message', 'Vous avez supprimé ce message')}
+                  deletedTextTheirs={t('this_message_deleted', 'Ce message a été supprimé')}
+                />
+              );
+            }}
+          />
         )}
 
         {/* Input Bar Wrapper (With Preview) */}
         <View style={[styles.inputWrapperContainer, { backgroundColor: colors.background, borderTopColor: colors.border }]}>
-            {(iBlocked || imBlocked) ? (
-                <View style={{ padding: 16, alignItems: 'center' }}>
-                    <Text style={{ color: colors.textMuted, fontSize: 13, textAlign: 'center' }}>
-                        {iBlocked ? t('you_blocked_this_contact', 'Vous avez bloqué ce contact. Appuyez ici pour débloquer.') : t('cannot_send_messages', 'Vous ne pouvez plus envoyer de messages dans cette conversation.')}
-                    </Text>
-                    {iBlocked && (
-                        <Pressable onPress={() => handleBlock(false)} style={{ marginTop: 8, padding: 8, backgroundColor: colors.secondary, borderRadius: 8 }}>
-                            <Text style={{ color: colors.primary, fontWeight: 'bold' }}>{t('unblock', 'Débloquer')}</Text>
-                        </Pressable>
-                    )}
-                </View>
-            ) : (
-                <>
-                    {(replyToMessage || editingMessage) && (
-                        <View style={[styles.previewBar, { backgroundColor: colors.secondary }]}>
-                            <View style={styles.previewContent}>
-                                <View style={[styles.previewVerticalBar, { backgroundColor: colors.primary }]} />
-                                <View style={styles.previewTextContainer}>
-                                    <Text style={[styles.previewTitle, { color: colors.primary }]}>
-                                        {editingMessage ? t('edit_message') : t('reply_to')}
-                                    </Text>
-                                    <Text numberOfLines={1} style={[styles.previewText, { color: colors.textMuted }]}>
-                                        {editingMessage ? editingMessage.content : replyToMessage.content}
-                                    </Text>
-                                </View>
-                            </View>
-                            <Pressable onPress={cancelReplyOrEdit} style={styles.previewCloseBtn}>
-                                <Ionicons name="close-circle" size={20} color={colors.textMuted} />
-                            </Pressable>
-                        </View>
-                    )}
-
-                    <View style={styles.inputContainer}>
-                        <Pressable style={styles.inputIconBtn}>
-                            <Paperclip size={22} color={colors.textMuted} />
-                        </Pressable>
-                        <View style={[styles.inputWrapper, { backgroundColor: colors.secondary }]}>
-                            <TextInput
-                            ref={inputRef}
-                            placeholder={t('message_placeholder')}
-                            placeholderTextColor={colors.textMuted}
-                            style={[styles.input, { color: colors.text }]}
-                            value={input}
-                            onFocus={() => {
-                                emojiSheetRef.current?.close();
-                            }}
-                            onChangeText={handleInputChange}
-                            multiline
-                            maxLength={2000}
-                            />
-                            <Pressable 
-                            style={styles.inputIconBtn}
-                            onPress={() => {
-                                Keyboard.dismiss();
-                                emojiSheetRef.current?.expand();
-                            }}
-                            >
-                            <Smile size={22} color={colors.textMuted} />
-                            </Pressable>
-                        </View>
-                        <Pressable
-                            onPress={handleSendMessage}
-                            style={({ pressed }) => [
-                            styles.sendBtn,
-                            { backgroundColor: input.trim() ? colors.primary : colors.secondary },
-                            pressed && { transform: [{ scale: 0.92 }] }
-                            ]}
-                        >
-                            <Send size={18} color={input.trim() ? '#000' : colors.textMuted} />
-                        </Pressable>
+          {(iBlocked || imBlocked) ? (
+            <View style={{ padding: 16, alignItems: 'center' }}>
+              <Text style={{ color: colors.textMuted, fontSize: 13, textAlign: 'center' }}>
+                {iBlocked ? t('you_blocked_this_contact', 'Vous avez bloqué ce contact. Appuyez ici pour débloquer.') : t('cannot_send_messages', 'Vous ne pouvez plus envoyer de messages dans cette conversation.')}
+              </Text>
+              {iBlocked && (
+                <Pressable onPress={() => handleBlock(false)} style={{ marginTop: 8, padding: 8, backgroundColor: colors.secondary, borderRadius: 8 }}>
+                  <Text style={{ color: colors.primary, fontWeight: 'bold' }}>{t('unblock', 'Débloquer')}</Text>
+                </Pressable>
+              )}
+            </View>
+          ) : (
+            <>
+              {(replyToMessage || editingMessage) && (
+                <View style={[styles.previewBar, { backgroundColor: colors.secondary }]}>
+                  <View style={styles.previewContent}>
+                    <View style={[styles.previewVerticalBar, { backgroundColor: colors.primary }]} />
+                    <View style={styles.previewTextContainer}>
+                      <Text style={[styles.previewTitle, { color: colors.primary }]}>
+                        {editingMessage ? t('edit_message') : t('reply_to')}
+                      </Text>
+                      <Text numberOfLines={1} style={[styles.previewText, { color: colors.textMuted }]}>
+                        {editingMessage ? editingMessage.content : replyToMessage.content}
+                      </Text>
                     </View>
-                </>
-            )}
+                  </View>
+                  <Pressable onPress={cancelReplyOrEdit} style={styles.previewCloseBtn}>
+                    <Ionicons name="close-circle" size={20} color={colors.textMuted} />
+                  </Pressable>
+                </View>
+              )}
+
+              <View style={styles.inputContainer}>
+                <Pressable style={styles.inputIconBtn}>
+                  <Paperclip size={22} color={colors.textMuted} />
+                </Pressable>
+                <View style={[styles.inputWrapper, { backgroundColor: colors.secondary }]}>
+                  <TextInput
+                    ref={inputRef}
+                    placeholder={t('message_placeholder')}
+                    placeholderTextColor={colors.textMuted}
+                    style={[styles.input, { color: colors.text }]}
+                    value={input}
+                    onFocus={() => {
+                      emojiSheetRef.current?.close();
+                    }}
+                    onChangeText={handleInputChange}
+                    multiline
+                    maxLength={2000}
+                  />
+                  <Pressable
+                    style={styles.inputIconBtn}
+                    onPress={() => {
+                      Keyboard.dismiss();
+                      emojiSheetRef.current?.expand();
+                    }}
+                  >
+                    <Smile size={22} color={colors.textMuted} />
+                  </Pressable>
+                </View>
+                <Pressable
+                  onPress={handleSendMessage}
+                  style={({ pressed }) => [
+                    styles.sendBtn,
+                    { backgroundColor: input.trim() ? colors.primary : colors.secondary },
+                    pressed && { transform: [{ scale: 0.92 }] }
+                  ]}
+                >
+                  <Send size={18} color={input.trim() ? '#000' : colors.textMuted} />
+                </Pressable>
+              </View>
+            </>
+          )}
         </View>
 
         {/* Action Menu Modal (Sleek Popup) */}
@@ -540,7 +545,7 @@ export default function ChatDetailScreen() {
                 <Ionicons name="arrow-undo-outline" size={20} color={colors.text} />
                 <Text style={[styles.actionMenuItemText, { color: colors.text }]}>{t('reply', 'Répondre')}</Text>
               </Pressable>
-              
+
               <Pressable style={({ pressed }) => [styles.actionMenuItem, pressed && { backgroundColor: colors.background }]} onPress={() => handleCopy(selectedMessage)}>
                 <Ionicons name="copy-outline" size={20} color={colors.text} />
                 <Text style={[styles.actionMenuItemText, { color: colors.text }]}>{t('copy', 'Copier')}</Text>
@@ -588,7 +593,7 @@ export default function ChatDetailScreen() {
                 <Ionicons name="archive-outline" size={20} color="#333" />
                 <Text style={styles.menuItemText}>{t('archive')}</Text>
               </TouchableOpacity>
-              
+
               <TouchableOpacity style={styles.menuItem} onPress={() => handleBlock(true)}>
                 <Ionicons name="ban-outline" size={20} color={iBlocked ? colors.primary : "#FF3B30"} />
                 <Text style={[styles.menuItemText, { color: iBlocked ? colors.primary : '#FF3B30' }]}>
@@ -635,26 +640,38 @@ export default function ChatDetailScreen() {
 
             <View style={[styles.actionList, { borderTopColor: colors.border }]}>
               {[
-                { label: t('copy', 'Copier'), icon: <Copy size={20} color={colors.textMuted} />, color: colors.text, action: () => {
+                {
+                  label: t('copy', 'Copier'), icon: <Copy size={20} color={colors.textMuted} />, color: colors.text, action: () => {
                     handleCopy(selectedMessage);
-                }},
-                { label: t('reply', 'Répondre'), icon: <Reply size={20} color={colors.textMuted} />, color: colors.text, action: () => {
+                  }
+                },
+                {
+                  label: t('reply', 'Répondre'), icon: <Reply size={20} color={colors.textMuted} />, color: colors.text, action: () => {
                     handleReply(selectedMessage);
                     bottomSheetRef.current?.close();
-                }},
-                { label: t('pin', 'Épingler'), icon: <Ionicons name="pin-outline" size={20} color={colors.textMuted} />, color: colors.text, action: () => {
+                  }
+                },
+                {
+                  label: t('pin', 'Épingler'), icon: <Ionicons name="pin-outline" size={20} color={colors.textMuted} />, color: colors.text, action: () => {
                     handlePin(selectedMessage);
-                }},
-                ...(selectedMessage?.senderId === user?._id ? [{ label: t('edit', 'Modifier'), icon: <Ionicons name="pencil-outline" size={20} color={colors.textMuted} />, color: colors.text, action: () => {
+                  }
+                },
+                ...(selectedMessage?.senderId === user?._id ? [{
+                  label: t('edit', 'Modifier'), icon: <Ionicons name="pencil-outline" size={20} color={colors.textMuted} />, color: colors.text, action: () => {
                     handleEdit(selectedMessage);
                     bottomSheetRef.current?.close();
-                }}] : []),
-                { label: t('forward', 'Transférer'), icon: <Forward size={20} color={colors.textMuted} />, color: colors.text, action: () => {
+                  }
+                }] : []),
+                {
+                  label: t('forward', 'Transférer'), icon: <Forward size={20} color={colors.textMuted} />, color: colors.text, action: () => {
                     bottomSheetRef.current?.close();
-                }},
-                ...(selectedMessage?.senderId === user?._id ? [{ label: t('delete', 'Supprimer'), icon: <Trash2 size={20} color={colors.error} />, color: colors.error, action: () => {
+                  }
+                },
+                ...(selectedMessage?.senderId === user?._id ? [{
+                  label: t('delete', 'Supprimer'), icon: <Trash2 size={20} color={colors.error} />, color: colors.error, action: () => {
                     handleDelete(selectedMessage);
-                }}] : []),
+                  }
+                }] : []),
               ].map((action, idx) => (
                 <Pressable
                   key={idx}
@@ -682,27 +699,27 @@ export default function ChatDetailScreen() {
           handleIndicatorStyle={{ backgroundColor: colors.textMuted, width: 40 }}
         >
           <BottomSheetView style={styles.sheetContent}>
-             <FlatList 
-               data={EMOJI_CATEGORIES}
-               keyExtractor={item => item.name}
-               showsVerticalScrollIndicator={false}
-               renderItem={({ item }) => (
-                 <View style={styles.emojiCategory}>
-                    <Text style={[styles.emojiCategoryName, { color: colors.textMuted }]}>{item.name}</Text>
-                    <View style={styles.emojiGrid}>
-                      {item.emojis.map(emoji => (
-                        <Pressable 
-                          key={emoji} 
-                          style={({ pressed }) => [styles.emojiBtn, pressed && { opacity: 0.6 }]}
-                          onPress={() => onEmojiSelect(emoji)}
-                        >
-                          <Text style={styles.emojiIcon}>{emoji}</Text>
-                        </Pressable>
-                      ))}
-                    </View>
-                 </View>
-               )}
-             />
+            <FlatList
+              data={EMOJI_CATEGORIES}
+              keyExtractor={item => item.name}
+              showsVerticalScrollIndicator={false}
+              renderItem={({ item }) => (
+                <View style={styles.emojiCategory}>
+                  <Text style={[styles.emojiCategoryName, { color: colors.textMuted }]}>{item.name}</Text>
+                  <View style={styles.emojiGrid}>
+                    {item.emojis.map(emoji => (
+                      <Pressable
+                        key={emoji}
+                        style={({ pressed }) => [styles.emojiBtn, pressed && { opacity: 0.6 }]}
+                        onPress={() => onEmojiSelect(emoji)}
+                      >
+                        <Text style={styles.emojiIcon}>{emoji}</Text>
+                      </Pressable>
+                    ))}
+                  </View>
+                </View>
+              )}
+            />
           </BottomSheetView>
         </BottomSheet>
       </SafeAreaView>
@@ -1218,12 +1235,14 @@ const MessageItem = memo(({ item, isMine, currentUser, onLongPress, onReply, sho
               </Text>
               {isMine && !isDeleted && (
                 <View style={styles.statusIcons}>
-                  {item.status === 'sending' ? (
-                    <Ionicons name="time-outline" size={14} color="rgba(255,255,255,0.6)" />
-                  ) : (item.isRead || item.status === 'read') ? (
+                  {item.status === 'read' ? (
                     <Ionicons name="checkmark-done" size={16} color="#45B1FF" />
-                  ) : (
+                  ) : item.status === 'delivered' ? (
                     <Ionicons name="checkmark-done" size={16} color="rgba(255,255,255,0.6)" />
+                  ) : item.status === 'sent' ? (
+                    <Ionicons name="checkmark" size={14} color="rgba(255,255,255,0.6)" />
+                  ) : (
+                    <Ionicons name="time-outline" size={14} color="rgba(255,255,255,0.6)" />
                   )}
                 </View>
               )}

@@ -11,14 +11,16 @@ interface CustomHeaderProps {
   backText?: string;
   rightAction?: React.ReactNode;
   onBack?: () => void;
+  containerStyle?: any;
+  titleStyle?: any;
 }
 
-export default function CustomHeader({ title, showBack = true, backText, rightAction, onBack }: CustomHeaderProps) {
+export default function CustomHeader({ title, showBack = true, backText, rightAction, onBack, containerStyle, titleStyle }: CustomHeaderProps) {
   const { colors } = useTheme();
   const { t } = useTranslation();
   const router = useRouter();
 
-  const displayBackText = backText || t('back');
+  const displayBackText = t('back');
 
   const handleBack = () => {
     if (onBack) {
@@ -29,7 +31,7 @@ export default function CustomHeader({ title, showBack = true, backText, rightAc
   };
 
   return (
-    <View style={[styles.container, { backgroundColor: colors.background, borderBottomColor: colors.border }]}>
+    <View style={[styles.container, { backgroundColor: colors.background, borderBottomColor: colors.border }, containerStyle]}>
       <View style={styles.leftContainer}>
         {showBack && (
           <Pressable 
@@ -43,7 +45,7 @@ export default function CustomHeader({ title, showBack = true, backText, rightAc
         )}
       </View>
       
-      <Text style={[styles.headerTitle, { color: colors.text }]} numberOfLines={1}>
+      <Text style={[styles.headerTitle, { color: colors.text }, titleStyle]} numberOfLines={1}>
         {title}
       </Text>
       

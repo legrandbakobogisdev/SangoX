@@ -1,12 +1,12 @@
-import React from 'react';
-import { StyleSheet, View, Text, Image, Pressable, Platform } from 'react-native';
-import { useRouter } from 'expo-router';
+import { BorderRadius, Spacing } from '@/constants/theme';
 import { useTheme } from '@/context/ThemeContext';
-import { Spacing, BorderRadius } from '@/constants/theme';
-import { Swipeable } from 'react-native-gesture-handler';
-import { Archive } from 'lucide-react-native';
 import * as Haptics from 'expo-haptics';
+import { useRouter } from 'expo-router';
+import { Archive, Check, CheckCheck } from 'lucide-react-native';
+import React from 'react';
 import { useTranslation } from 'react-i18next';
+import { Image, Platform, Pressable, StyleSheet, Text, View } from 'react-native';
+import { Swipeable } from 'react-native-gesture-handler';
 
 interface ChatItemProps {
   id: string;
@@ -18,9 +18,11 @@ interface ChatItemProps {
   online?: boolean;
   isTyping?: boolean;
   onArchive?: (id: string) => void;
+  messageStatus?: 'sent' | 'delivered' | 'read';
+  isLastMessageFromMe?: boolean;
 }
 
-export const ChatItem = React.memo<ChatItemProps>(({ id, name, text, time, count, image, online, isTyping, onArchive }) => {
+export const ChatItem = ({ id, name, text, time, count, image, online, isTyping, onArchive, messageStatus, isLastMessageFromMe }: ChatItemProps) => {
   const { colors, theme } = useTheme();
   const { t } = useTranslation();
   const router = useRouter();
@@ -51,6 +53,24 @@ export const ChatItem = React.memo<ChatItemProps>(({ id, name, text, time, count
         <Archive size={24} color="#000" />
       </Pressable>
     );
+  };
+
+  const renderStatusIcon = () => {
+    if (!isLastMessageFromMe || isTyping) return null;
+    
+    // read = 2 checkmarks bleus
+    if (messageStatus === 'read') {
+      return <CheckCheck size={14} color={colors.primary} />;
+    } 
+    // delivered = 2 checkmarks gris
+    else if (messageStatus === 'delivered') {
+      return <CheckCheck size={14} color={colors.textMuted} />;
+    } 
+    // sent = 1 checkmark gris
+    else if (messageStatus === 'sent') {
+      return <Check size={14} color={colors.textMuted} />;
+    }
+    return null;
   };
 
   return (
@@ -93,16 +113,19 @@ export const ChatItem = React.memo<ChatItemProps>(({ id, name, text, time, count
                     <Text style={[styles.time, { color: colors.textMuted }]}>{time}</Text>
                 </View>
                 <View style={styles.footer}>
-                    <Text 
-                        style={[
-                            styles.message, 
-                            { color: isTyping ? colors.primary : ((count && count > 0) ? colors.text : colors.textMuted) },
-                            (count && count > 0 || isTyping) ? { fontWeight: '700' } : null
-                        ]} 
-                        numberOfLines={1}
-                    >
-                        {isTyping ? t('typing') : text}
-                    </Text>
+                    <View style={styles.messageWithStatus}>
+                        {renderStatusIcon()}
+                        <Text 
+                            style={[
+                                styles.message, 
+                                { color: isTyping ? colors.primary : ((count && count > 0) ? colors.text : colors.textMuted) },
+                                (count && count > 0 || isTyping) ? { fontWeight: '700' } : null
+                            ]} 
+                            numberOfLines={1}
+                        >
+                            {isTyping ? t('typing') : text}
+                        </Text>
+                    </View>
                     {count !== undefined && count > 0 && (
                         <View style={[styles.unreadBadge, { backgroundColor: colors.primary }]}>
                             <Text style={styles.unreadText}>{count}</Text>
@@ -113,7 +136,7 @@ export const ChatItem = React.memo<ChatItemProps>(({ id, name, text, time, count
         </Pressable>
     </Swipeable>
   );
-});
+};
 
 const styles = StyleSheet.create({
   container: {
@@ -166,6 +189,17 @@ const styles = StyleSheet.create({
     fontSize: 14,
     flex: 1,
     marginRight: Spacing.sm,
+  },
+  messageWithStatus: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flex: 1,
+    gap: 4,
+  },
+  rightContent: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
   },
   unreadBadge: {
     minWidth: 20,
