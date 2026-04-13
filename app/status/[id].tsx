@@ -59,15 +59,20 @@ export default function StatusViewerScreen() {
       const allStoriesData = await StoryService.getActiveStories();
       const rawData = Array.isArray(allStoriesData) ? allStoriesData : (allStoriesData?.data || []);
       
-      const groups = rawData.map((group: any) => ({
-        id: group.userId,
-        name: group.stories?.[0]?.user?.username || group.stories?.[0]?.user?.name || group.stories?.[0]?.userId || 'User',
-        image: group.stories?.[0]?.user?.profilePicture || group.stories?.[0]?.user?.avatar || 'https://via.placeholder.com/150',
-        items: group.stories.map((s: any) => ({
-          ...s,
-          duration: s.mediaParams?.duration ? (s.mediaParams.duration < 100 ? s.mediaParams.duration * 1000 : s.mediaParams.duration) : 5000,
-        }))
-      }));
+      const groups = rawData.map((group: any) => {
+        const u = group.stories?.[0]?.user;
+        const profileName = u && typeof u === 'object' ? `${u.firstName || ''} ${u.lastName || ''}`.trim() : '';
+
+        return {
+          id: group.userId,
+          name: profileName || u?.username || u?.name || group.userId || 'User',
+          image: u?.profilePicture || u?.avatar || 'https://via.placeholder.com/150',
+          items: group.stories.map((s: any) => ({
+            ...s,
+            duration: s.mediaParams?.duration ? (s.mediaParams.duration < 100 ? s.mediaParams.duration * 1000 : s.mediaParams.duration) : 5000,
+          }))
+        };
+      });
 
       setUserStoryGroups(groups);
 
@@ -464,12 +469,15 @@ function UserStatusGroup({ person, index, scrollX, insets, onClose, goNext, goPr
                       <FlatList 
                         data={viewers}
                         keyExtractor={(v) => v._id || v.id}
-                        renderItem={({ item }) => (
-                            <View style={styles.viewerItem}>
-                                <Image source={{ uri: item.profilePicture || 'https://via.placeholder.com/150' }} style={styles.viewerAvatar} />
-                                <Text style={[styles.viewerName, { color: colors.text }]}>{item.username || item.name}</Text>
-                            </View>
-                        )}
+                        renderItem={({ item }) => {
+                            const profileName = `${item.firstName || ''} ${item.lastName || ''}`.trim();
+                            return (
+                              <View style={styles.viewerItem}>
+                                  <Image source={{ uri: item.profilePicture || 'https://via.placeholder.com/150' }} style={styles.viewerAvatar} />
+                                  <Text style={[styles.viewerName, { color: colors.text }]}>{profileName || item.username || item.name}</Text>
+                              </View>
+                            );
+                        }}
                         ListEmptyComponent={<Text style={{ color: colors.textMuted, textAlign: 'center', marginTop: 20 }}>No views yet</Text>}
                         contentContainerStyle={{ padding: 16 }}
                       />

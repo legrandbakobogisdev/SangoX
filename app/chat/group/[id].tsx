@@ -64,14 +64,27 @@ export default function ChatDetailScreen() {
   );
 
   const partnerId = useMemo(() => {
-    const p = chat?.participants?.find((p: any) => {
-      const pId = typeof p === 'string' ? p : (p._id || p.id);
-      return String(pId) !== String(user?._id) && String(pId) !== String(user?.id);
-    });
-    return typeof p === 'string' ? p : (p?._id || p?._id);
+    if (chat?.type === 'individual') {
+      const p = chat?.participants?.find((p: any) => {
+        const pId = typeof p === 'string' ? p : (p._id || p.id);
+        return String(pId) !== String(user?._id) && String(pId) !== String(user?.id);
+      });
+      return typeof p === 'string' ? p : (p?._id || p?._id);
+    }
+    return null;
   }, [chat, user]);
 
   const isPartnerOnline = partnerId ? onlineUsers[partnerId] : false;
+
+  const onlineCount = useMemo(() => {
+    if (!chat?.participants) return 0;
+    return chat.participants.filter((p: any) => {
+      const pId = typeof p === 'string' ? p : (p._id || p.id);
+      return onlineUsers[pId];
+    }).length;
+  }, [chat?.participants, onlineUsers]);
+
+  const memberCount = chat?.participants?.length || 0;
 
   useEffect(() => {
     return () => {
@@ -366,7 +379,7 @@ export default function ChatDetailScreen() {
     try {
       const result = await ImagePicker.launchImageLibraryAsync({
         mediaTypes: ['images', 'videos'],
-        allowsEditing: false, // Must be false for selectionLimit > 1 or multiple
+        allowsEditing: false, 
         allowsMultipleSelection: true,
         selectionLimit: 10,
         quality: 0.9,
@@ -727,9 +740,9 @@ export default function ChatDetailScreen() {
               </View>
               <Text style={[
                 styles.status,
-                { color: isPartnerTyping ? colors.primary : (isPartnerOnline ? colors.success : colors.textMuted) }
+                { color: isPartnerTyping ? colors.primary : colors.textMuted }
               ]}>
-                {isPartnerTyping ? t('typing') : (isPartnerOnline ? t('online') : t('offline'))}
+                {isPartnerTyping ? t('typing') : (onlineCount > 0 ? t('members_online', { count: onlineCount }) : t('members_count', { count: memberCount }))}
               </Text>
             </View>
           </Pressable>
@@ -1398,6 +1411,9 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
   },
+  reactionEmoji: {
+    fontSize: 28,
+  },
   actionList: {
     borderTopWidth: StyleSheet.hairlineWidth,
   },
@@ -1476,11 +1492,11 @@ const styles = StyleSheet.create({
     width: 250,
     borderRadius: 14,
     borderWidth: StyleSheet.hairlineWidth,
-    elevation: 5,
+    elevation: 8,
     shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 10,
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.15,
+    shadowRadius: 12,
     overflow: 'hidden',
   },
   reactionPicker: {
@@ -1642,6 +1658,12 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: '700',
   },
+  senderName: {
+    fontSize: 13,
+    fontWeight: '800',
+    marginBottom: 4,
+    letterSpacing: 0.3,
+  },
   statusIcons: {
     marginLeft: 4,
   },
@@ -1767,6 +1789,7 @@ const styles = StyleSheet.create({
     width: 60,
     paddingLeft: 20,
   },
+  // Stacked Media Styles
   stackContainer: {
     height: 220,
     width: 260,
@@ -1839,9 +1862,6 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.2,
     shadowRadius: 6,
     elevation: 5,
-  },
-  reactionEmoji: {
-    fontSize: 14,
   },
   reactionCount: {
     fontSize: 12,
@@ -1918,18 +1938,39 @@ const MessageItem = memo(({ item, isMine, currentUser, onLongPress, onReply, sho
         rightThreshold={40}
         leftThreshold={40}
       >
-        <View style={[styles.messageWrapper, isMine ? styles.myMessageWrapper : styles.theirMessageWrapper]}>
-          <Pressable
-            onLongPress={(e) => onLongPress(item, e)}
-            style={[
-              styles.messageBubble,
-              isMine 
-                ? { backgroundColor: '#323232', borderBottomRightRadius: 4 } 
-                : { backgroundColor: 'rgba(255, 255, 255, 0.15)', borderBottomLeftRadius: 4 },
-              (isImage || isVideo || isMediaGroup) && { elevation: 0, shadowOpacity: 0, backgroundColor: 'transparent' },
-              item.isDeleted && { opacity: 0.7 },
-              (isImage || isVideo || isMediaGroup) ? { padding: 0 } : (hasMediaPadding && { padding: 4 })
-            ]}>
+        <View style={[styles.messageWrapper, isMine ? { justifyContent: 'flex-end' } : { justifyContent: 'flex-start' }]}>
+          {/* Avatar Area (Only for others) */}
+          {!isMine && (
+            <View style={styles.avatarStalk}>
+              {showAvatar ? (
+                <View style={[styles.messageAvatar, { backgroundColor: colors.secondary }]}>
+                  {avatarUrl ? (
+                    <Image source={{ uri: avatarUrl }} style={styles.avatarImg} />
+                  ) : (
+                    <Text style={[styles.avatarText, { color: colors.primary }]}>{senderInitial}</Text>
+                  )}
+                </View>
+              ) : null}
+            </View>
+          )}
+
+          <View style={[isMine ? { alignItems: 'flex-end' } : { flex: 1 }]}>
+            <Pressable
+              onLongPress={(e) => onLongPress(item, e)}
+              style={[
+                styles.messageBubble,
+                isMine 
+                  ? { backgroundColor: '#323232', borderBottomRightRadius: 4 } 
+                  : { backgroundColor: 'rgba(255, 255, 255, 0.15)', borderBottomLeftRadius: 4 },
+                (isImage || isVideo || isMediaGroup) && { elevation: 0, shadowOpacity: 0, backgroundColor: 'transparent' },
+                item.isDeleted && { opacity: 0.7 },
+                (isImage || isVideo || isMediaGroup) ? { padding: 0 } : (hasMediaPadding && { padding: 4 })
+              ]}>
+              {showAvatar && !isMine && !isDeleted && (
+                <Text style={[styles.senderName, { color: colors.primary }]}>
+                  {senderInfo?.firstName ? `${senderInfo.firstName} ${senderInfo.lastName || ''}` : senderInfo?.username || 'User'}
+                </Text>
+              )}
             {item.replyTo && !isDeleted && (
               <View style={[styles.replyPreview, isMine ? styles.replyPreviewMine : styles.replyPreviewTheirs, hasMediaPadding && { marginHorizontal: 8, marginTop: 8 }]}>
                 <View style={[styles.replyBar, isMine ? styles.replyBarMine : styles.replyBarTheirs]} />
@@ -2047,10 +2088,12 @@ const MessageItem = memo(({ item, isMine, currentUser, onLongPress, onReply, sho
                       pathname: '/chat/media-group-detail',
                       params: { messageId: item._id, conversationId: conversationId }
                     })}
-                    style={[styles.stackContainer, isMine ? { alignSelf: 'flex-end' } : { alignSelf: 'flex-start' }]}
+                    style={styles.stackContainer}
                   >
                     {item.items.slice(0, 3).reverse().map((subItem: any, idx: number) => {
                       const total = item.items.length;
+                      const displayIdx = total <= 3 ? idx : idx + (total - 3);
+                      // Reverse logic: the last item (top) should be centered
                       const isTop = idx === 2 || (total < 3 && idx === total - 1);
                       
                       let rotation = '0deg';
@@ -2062,7 +2105,7 @@ const MessageItem = memo(({ item, isMine, currentUser, onLongPress, onReply, sho
                         if (idx === 1) { rotation = '6deg'; translateX = 10; translateY = -5; }
                         if (isTop) { rotation = '0deg'; translateX = 0; translateY = 0; }
                       }
-                      
+
                       const uri = subItem.type === 'image' ? subItem.content : (subItem.metadata?.thumbnailUrl || subItem.content);
 
                       return (
@@ -2077,7 +2120,7 @@ const MessageItem = memo(({ item, isMine, currentUser, onLongPress, onReply, sho
                                 { translateY: translateY }
                               ],
                               zIndex: idx,
-                              marginLeft: idx === 0 ? 0 : -140,
+                              marginLeft: idx === 0 ? 0 : -140, // Overlap
                             }
                           ]}
                         >
@@ -2129,13 +2172,13 @@ const MessageItem = memo(({ item, isMine, currentUser, onLongPress, onReply, sho
                 {isMine && !isDeleted && (
                   <View style={styles.statusIcons}>
                     {item.status === 'read' ? (
-                      <Ionicons name="checkmark-done" size={16} color="#45B1FF" />
+                      <Ionicons name="checkmark-done" size={16} color="#000000" />
                     ) : item.status === 'delivered' ? (
-                      <Ionicons name="checkmark-done" size={16} color="rgba(255,255,255,0.6)" />
+                      <Ionicons name="checkmark-done" size={16} color="rgba(0,0,0,0.4)" />
                     ) : item.status === 'sent' ? (
-                      <Ionicons name="checkmark" size={14} color="rgba(255,255,255,0.6)" />
+                      <Ionicons name="checkmark" size={14} color="rgba(0,0,0,0.4)" />
                     ) : (
-                      <Ionicons name="time-outline" size={14} color="rgba(255,255,255,0.6)" />
+                      <Ionicons name="time-outline" size={14} color="rgba(0,0,0,0.4)" />
                     )}
                   </View>
                 )}
@@ -2159,6 +2202,7 @@ const MessageItem = memo(({ item, isMine, currentUser, onLongPress, onReply, sho
             )}
           </Pressable>
         </View>
+      </View>
     </Swipeable>
   </AnimatedRN.View>
 );

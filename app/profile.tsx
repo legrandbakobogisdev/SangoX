@@ -1,10 +1,11 @@
 import React from 'react';
-import { StyleSheet, View, Text, Pressable, Image, ScrollView, Platform, Clipboard, Alert } from 'react-native';
+import { StyleSheet, View, Text, Pressable, Image, ScrollView, Platform, Clipboard, Alert, ActivityIndicator } from 'react-native';
 import { useTheme } from '@/context/ThemeContext';
 import { useAuth } from '@/context/AuthContext';
 import { useRouter } from 'expo-router';
 import { User, Camera, Copy, PencilLine, Check } from 'lucide-react-native';
 import CustomHeader from '@/components/CustomHeader';
+import MediaService from '@/services/MediaService';
 import * as ImagePicker from 'expo-image-picker';
 import { useTranslation } from 'react-i18next';
 
@@ -57,6 +58,8 @@ export default function ProfileScreen() {
     Alert.alert(t('success'), t('profile_updated'));
   };
 
+  const [isUploading, setIsUploading] = React.useState(false);
+
   const pickImage = async () => {
     try {
       const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
@@ -74,12 +77,17 @@ export default function ProfileScreen() {
       });
 
       if (!result.canceled) {
-        await updateUser({ profilePhotoUrl: result.assets[0].uri });
-        setHasImageChanged(true);
+        setIsUploading(true);
+        const uploadResponse = await MediaService.uploadFile(result.assets[0].uri, 'profile');
+        await updateUser({ profilePhotoUrl: uploadResponse.url });
+        setHasImageChanged(false); // Immediate update on backend successful
+        Alert.alert(t('success'), t('profile_updated'));
       }
-    } catch (error) {
+    } catch (error: any) {
       console.error('Image Picker Error:', error);
-      Alert.alert('Error', 'Failed to pick image');
+      Alert.alert('Error', error.message || 'Failed to update profile photo');
+    } finally {
+      setIsUploading(false);
     }
   };
 
@@ -129,8 +137,9 @@ export default function ProfileScreen() {
             <Pressable 
               style={[styles.editAvatarBtn, { backgroundColor: colors.surface, borderColor: colors.border }]}
               onPress={pickImage}
+              disabled={isUploading}
             >
-              <Camera size={20} color={colors.text} />
+              {isUploading ? <ActivityIndicator size="small" color={colors.primary} /> : <Camera size={20} color={colors.text} />}
             </Pressable>
           </View>
         </View>

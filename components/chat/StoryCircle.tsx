@@ -2,7 +2,8 @@ import React from 'react';
 import { StyleSheet, View, Image, Text, Pressable } from 'react-native';
 import { useTheme } from '@/context/ThemeContext';
 import { Spacing, BorderRadius } from '@/constants/theme';
-import { Plus } from 'lucide-react-native';
+import { Plus, Crown } from 'lucide-react-native';
+import LottieView from 'lottie-react-native';
 
 interface StoryCircleProps {
   id: string;
@@ -11,10 +12,11 @@ interface StoryCircleProps {
   isAdd?: boolean;
   storyCount?: number;
   unseenCount?: number;
+  isPremium?: boolean;
   onPress: () => void;
 }
 
-export const StoryCircle: React.FC<StoryCircleProps> = ({ name, image, isAdd, storyCount = 1, unseenCount = 0, onPress }) => {
+export const StoryCircle: React.FC<StoryCircleProps> = ({ name, image, isAdd, storyCount = 1, unseenCount = 0, isPremium, onPress }) => {
   const { colors } = useTheme();
 
   const renderSegments = () => {
@@ -65,6 +67,18 @@ export const StoryCircle: React.FC<StoryCircleProps> = ({ name, image, isAdd, st
         {!isAdd && unseenCount > 0 && (
           <View style={[styles.badge, { backgroundColor: colors.primary }]}>
             <Text style={styles.badgeText}>{unseenCount}</Text>
+          </View>
+        )}
+
+        {/* Premium badge */}
+        {!isAdd && isPremium && (
+          <View style={styles.premiumBadge}>
+            <LottieView 
+              source={require('@/assets/lottie/Disabled premium.json')} 
+              autoPlay 
+              loop 
+              style={{ width: 22, height: 22 }} 
+            />
           </View>
         )}
       </View>
@@ -133,5 +147,16 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: '500',
     textAlign: 'center',
+  },
+  premiumBadge: {
+    position: 'absolute',
+    bottom: -6,
+    right: -6,
+    width: 26,
+    height: 26,
+    zIndex: 11,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: 'transparent',
   },
 });

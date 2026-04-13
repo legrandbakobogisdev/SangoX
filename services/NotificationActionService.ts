@@ -11,7 +11,7 @@ class NotificationActionService {
   /**
    * Handle notification action (reply or mark as read)
    */
-  static async handleNotificationAction(payload: NotificationActionPayload): Promise<void> {
+  static async handleNotificationAction(payload: NotificationActionPayload): Promise<any> {
     try {
       console.log('[NotificationAction] Sending action:', payload.action, 'for conversation:', payload.conversationId);
       

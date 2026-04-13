@@ -1,84 +1,53 @@
 import React, { useEffect, useState } from 'react';
-import { StyleSheet, View, Text, Pressable, ScrollView, ActivityIndicator, Alert, Linking, Platform } from 'react-native';
+import { StyleSheet, View, Text, Pressable, ScrollView, ActivityIndicator, Alert, Linking, Dimensions, Platform } from 'react-native';
 import { useAuth } from '@/context/AuthContext';
 import { useTheme } from '@/context/ThemeContext';
 import { useTranslation } from 'react-i18next';
-import { Crown, CheckCircle2, Zap, ShieldCheck, Image as ImageIcon, Sparkles, ArrowRight, History, CreditCard, XCircle, Clock, ChevronRight, User, Users } from 'lucide-react-native';
+import { useRouter } from 'expo-router';
+import { 
+  Zap, 
+  Heart, 
+  Eye, 
+  Mail, 
+  RotateCcw, 
+  Puzzle, 
+  X, 
+  CheckCircle2,
+  Sparkles
+} from 'lucide-react-native';
+import { LinearGradient } from 'expo-linear-gradient';
+import LottieView from 'lottie-react-native';
 import { SubscriptionService, SubscriptionStatus } from '@/services/SubscriptionService';
 import { PaymentService } from '@/services/PaymentService';
-import CustomHeader from '@/components/CustomHeader';
+import { StatusBar } from 'expo-status-bar';
 
-const FeatureItem = ({ title }: { title: string }) => {
-  const { colors } = useTheme();
+const { width } = Dimensions.get('window');
+
+const FeatureCard = ({ title, desc, status, icon: Icon, color }: any) => {
   return (
-    <View style={styles.featureItem}>
-      <CheckCircle2 size={16} color={colors.primary} />
-      <Text style={[styles.featureText, { color: 'rgba(255,255,255,0.7)' }]}>{title}</Text>
-    </View>
-  );
-};
-
-const PlanCard = ({ title, icon: Icon, color, selected, onPress, subtitle }: any) => {
-  const { colors } = useTheme();
-  return (
-    <Pressable 
-      style={[styles.planCard, { backgroundColor: '#1C1C1E' }]}
-      onPress={onPress}
-    >
-      <View style={[styles.planIconBox, { backgroundColor: color }]}>
-        <Icon size={20} color="white" />
+    <View style={[styles.featureCard, { backgroundColor: 'rgba(28, 28, 30, 0.8)' }]}>
+      <View style={[styles.iconContainer, { backgroundColor: color + '20' }]}>
+        <Icon size={22} color={color} />
       </View>
-      <View style={styles.planInfo}>
-        <Text style={[styles.planTitle, { color: 'white' }]}>{title}</Text>
-        <Text style={[styles.planSubtitle, { color: 'rgba(255,255,255,0.5)' }]}>{subtitle}</Text>
+      <View style={styles.featureInfo}>
+        <Text style={styles.featureTitle} numberOfLines={1}>{title}</Text>
+        <Text style={styles.featureDesc} numberOfLines={2}>{desc}</Text>
       </View>
-      <ChevronRight size={18} color="rgba(255,255,255,0.3)" />
-    </Pressable>
-  );
-};
-
-const TransactionItem = ({ item }: { item: any }) => {
-  const { colors } = useTheme();
-  const { t } = useTranslation();
-  
-  const getStatusIcon = (status: string) => {
-    switch (status) {
-      case 'success': return <CheckCircle2 size={16} color="#1DB954" />;
-      case 'failed': return <XCircle size={16} color="#FF4D4D" />;
-      default: return <Clock size={16} color="#BFBFBF" />;
-    }
-  };
-
-  return (
-    <View style={[styles.transactionCard, { backgroundColor: '#1C1C1E' }]}>
-      <View style={[styles.transactionIcon, { backgroundColor: 'rgba(255,215,0,0.1)' }]}>
-        <CreditCard size={18} color="#FFD700" />
-      </View>
-      <View style={styles.transactionMain}>
-        <Text style={[styles.transactionTitle, { color: 'white' }]}>Premium Monthly</Text>
-        <Text style={[styles.transactionDate, { color: 'rgba(255,255,255,0.4)' }]}>
-          {new Date(item.createdAt).toLocaleDateString()}
-        </Text>
-      </View>
-      <View style={styles.transactionAmount}>
-        <Text style={[styles.amountText, { color: 'white' }]}>{item.amount} {item.currency}</Text>
-        <View style={styles.statusRow}>
-          {getStatusIcon(item.status)}
-          <Text style={[styles.statusText, { color: 'rgba(255,255,255,0.4)' }]}>{item.status}</Text>
-        </View>
+      <View style={[styles.statusBadge, { backgroundColor: color }]}>
+        <Text style={styles.statusText}>{status}</Text>
       </View>
     </View>
   );
 };
 
 export default function SubscriptionScreen() {
-  const { colors, theme } = useTheme();
+  const { colors } = useTheme();
   const { t } = useTranslation();
-  const { user } = useAuth();
+  const { user, refreshProfile } = useAuth();
+  const router = useRouter();
   const [loading, setLoading] = useState(true);
   const [subscribing, setSubscribing] = useState(false);
   const [status, setStatus] = useState<SubscriptionStatus | null>(null);
-  const [history, setHistory] = useState<any[]>([]);
 
   useEffect(() => {
     fetchData();
@@ -87,12 +56,11 @@ export default function SubscriptionScreen() {
   const fetchData = async () => {
     try {
       setLoading(true);
-      const [statusData, historyData] = await Promise.all([
+      const [statusData] = await Promise.all([
         SubscriptionService.getStatus(),
-        PaymentService.getHistory()
+        refreshProfile()
       ]);
       setStatus(statusData);
-      setHistory(historyData);
     } catch (error) {
       console.error('Failed to fetch data:', error);
     } finally {
@@ -121,10 +89,55 @@ export default function SubscriptionScreen() {
     }
   };
 
+  const features = [
+    {
+      title: 'Boosts',
+      desc: 'Obtenez jusqu\'à 8x plus de visibilité',
+      status: '1 toutes les 6h',
+      icon: Zap,
+      color: '#A855F7'
+    },
+    {
+      title: 'Réactions',
+      desc: 'Réagissez à plus de profils',
+      status: 'Illimité',
+      icon: Heart,
+      color: '#EC4899'
+    },
+    {
+      title: 'Défloutage',
+      desc: 'Voyez qui a réagi à votre profil',
+      status: 'Illimité',
+      icon: Eye,
+      color: '#3B82F6'
+    },
+    {
+      title: 'Coup de foudre',
+      desc: 'Envoyez des messages directs',
+      status: '10/jour',
+      icon: Mail,
+      color: '#F59E0B'
+    },
+    {
+      title: 'Retours',
+      desc: 'Annulez votre dernier swipe',
+      status: '10/jour',
+      icon: RotateCcw,
+      color: '#10B981'
+    },
+    {
+      title: 'Compatibilité',
+      desc: 'Vérifiez vos affinités',
+      status: '10/jour',
+      icon: Puzzle,
+      color: '#6366F1'
+    }
+  ];
+
   if (loading) {
     return (
-      <View style={[styles.center, { backgroundColor: '#000' }]}>
-        <ActivityIndicator size="large" color="#1DB954" />
+      <View style={[styles.loadingContainer, { backgroundColor: '#000' }]}>
+        <ActivityIndicator size="large" color="#A855F7" />
       </View>
     );
   }
@@ -132,189 +145,200 @@ export default function SubscriptionScreen() {
   const isPremium = (status?.plan === 'premium' && status?.status === 'active') || user?.isPremium;
 
   return (
-    <View style={[styles.container, { backgroundColor: '#000' }]}>
-       <CustomHeader 
-         title={t('subscription')} 
-         containerStyle={{ backgroundColor: '#000', borderBottomColor: 'transparent' }}
-         titleStyle={{ color: 'white' }} 
-       />
-       
-       <ScrollView 
-         contentContainerStyle={styles.scrollContent} 
-         showsVerticalScrollIndicator={false}
-       >
-          <Text style={[styles.mainHeading, { color: 'white' }]}>
-            {isPremium ? t('your_subscription') : t('subscribe_premium')}
-          </Text>
-          <Text style={styles.subHeading}>
-             {isPremium 
-               ? t('premium_welcome_msg') 
-               : t('premium_promo_msg')}
-          </Text>
+    <View style={styles.container}>
+      <StatusBar style="light" />
+      <LinearGradient
+        colors={['#1a0b2e', '#000000']}
+        style={StyleSheet.absoluteFill}
+      />
+      
+      {/* Starry background effect - simple simulation with sparkles */}
+      <View style={StyleSheet.absoluteFill}>
+        <Sparkles size={12} color="rgba(255,255,255,0.1)" style={{ position: 'absolute', top: 100, left: 50 }} />
+        <Sparkles size={10} color="rgba(255,255,255,0.05)" style={{ position: 'absolute', top: 250, right: 80 }} />
+        <Sparkles size={8} color="rgba(255,255,255,0.1)" style={{ position: 'absolute', bottom: 200, left: 120 }} />
+      </View>
 
-          {/* Current / Targeted Plan Card */}
-          <View style={[styles.heroCard, { backgroundColor: '#1C1C1E' }]}>
-            <View style={styles.heroTop}>
-               <View style={styles.crownCircle}>
-                 <Crown size={24} color="white" />
-               </View>
-               <View style={styles.currentBadge}>
-                  <Text style={styles.currentBadgeText}>{isPremium ? t('active') : "Current Plan"}</Text>
-               </View>
-            </View>
+      <View style={styles.header}>
+        <Pressable 
+          onPress={() => router.back()} 
+          style={styles.closeButton}
+        >
+          <X color="rgba(255,255,255,0.6)" size={24} />
+        </Pressable>
+      </View>
 
-            <Text style={[styles.planLabel, { color: 'white' }]}>
-               {isPremium ? "Premium Monthly" : "Individual Plan"}
-            </Text>
+      <ScrollView 
+        contentContainerStyle={styles.scrollContent}
+        showsVerticalScrollIndicator={false}
+      >
+        <View style={styles.topSection}>
+          <LottieView
+            source={require('@/assets/lottie/Disabled premium.json')}
+            autoPlay
+            loop
+            style={styles.lottie}
+          />
+          <Text style={styles.mainTitle}>Enjoy SangoX Ultimate</Text>
+        </View>
 
-            <View style={styles.featuresList}>
-               <FeatureItem title="Unlimited End-to-End Chat" />
-               <FeatureItem title="Original Media Quality" />
-               <FeatureItem title="Exclusive Premium Badge" />
-            </View>
+        <View style={styles.grid}>
+          {features.map((item, index) => (
+            <FeatureCard key={index} {...item} />
+          ))}
+        </View>
 
-            <View style={styles.priceRow}>
-               <Text style={[styles.priceText, { color: 'white' }]}>
-                  {isPremium ? "1 000 FCFA" : "1 000 FCFA"}
-                  <Text style={styles.pricePeriod}>/ month</Text>
-               </Text>
-               {isPremium && (
-                 <Pressable onPress={() => Alert.alert('Coming Soon', 'Manage your subscription anytime.')}>
-                   <Text style={[styles.manageLink, { color: 'rgba(255,255,255,0.5)' }]}>Manage Plan {'>'}</Text>
-                 </Pressable>
-               )}
-            </View>
-
-            {!isPremium && (
-              <Pressable 
-                style={({ pressed }) => [
-                  styles.ctaButton, 
-                  { backgroundColor: '#1DB954' },
-                  pressed && { opacity: 0.8 }
-                ]}
-                onPress={handleSubscribe}
-                disabled={subscribing}
-              >
-                {subscribing ? (
-                  <ActivityIndicator color="white" />
-                ) : (
-                  <Text style={styles.ctaText}>Get Premium</Text>
-                )}
-              </Pressable>
-            )}
-          </View>
-
-          {!isPremium && (
-            <View style={styles.availableSection}>
-              <Text style={[styles.sectionTitle, { color: 'white' }]}>Available Plan</Text>
-              
-              <PlanCard 
-                title="Basic premium"
-                subtitle="1 Premium account"
-                color="#F59E0B"
-                icon={User}
-              />
-              <PlanCard 
-                title="Premium Family"
-                subtitle="Up to 6 accounts"
-                color="#10B981"
-                icon={Users}
-              />
-            </View>
-          )}
-
-          {history.length > 0 && (
-            <View style={styles.historySection}>
-              <Text style={[styles.sectionTitle, { color: 'white' }]}>{t('payment_history')}</Text>
-              {history.map((item) => <TransactionItem key={item._id} item={item} />)}
-            </View>
-          )}
-
-          <View style={{ height: 60 }} />
-       </ScrollView>
+        <View style={styles.bottomSection}>
+          <Pressable 
+            style={({ pressed }) => [
+              styles.continueButton,
+              pressed && { opacity: 0.9, transform: [{ scale: 0.98 }] }
+            ]}
+            onPress={handleSubscribe}
+            disabled={subscribing || isPremium}
+          >
+            <LinearGradient
+              colors={['#A855F7', '#7C3AED']}
+              start={{ x: 0, y: 0 }}
+              end={{ x: 1, y: 0 }}
+              style={styles.gradientButton}
+            >
+              {subscribing ? (
+                <ActivityIndicator color="white" />
+              ) : (
+                <Text style={styles.continueText}>
+                  {isPremium ? 'Premium Actif' : 'Continuer'}
+                </Text>
+              )}
+            </LinearGradient>
+          </Pressable>
+          <Text style={styles.priceInfo}>1000 FCFA/mois. Annulable à tout moment</Text>
+        </View>
+        
+        <View style={{ height: 40 }} />
+      </ScrollView>
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1 },
-  center: { flex: 1, justifyContent: 'center', alignItems: 'center' },
-  scrollContent: { padding: 20 },
-  
-  mainHeading: { fontSize: 28, fontWeight: '800', marginBottom: 8 },
-  subHeading: { fontSize: 14, color: 'rgba(255,255,255,0.6)', lineHeight: 20, marginBottom: 28 },
-  
-  heroCard: {
-    borderRadius: 24,
-    padding: 24,
-    marginBottom: 32,
+  container: {
+    flex: 1,
+    backgroundColor: '#000',
   },
-  heroTop: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 },
-  crownCircle: {
-    width: 48,
-    height: 48,
-    borderRadius: 24,
-    backgroundColor: '#F59E0B',
+  loadingContainer: {
+    flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
   },
-  currentBadge: {
-    paddingHorizontal: 12,
-    paddingVertical: 6,
+  header: {
+    height: 60,
+    justifyContent: 'center',
+    paddingHorizontal: 20,
+    marginTop: Platform.OS === 'ios' ? 40 : 10,
+    zIndex: 10,
+  },
+  closeButton: {
+    alignSelf: 'flex-end',
+    width: 40,
+    height: 40,
     borderRadius: 20,
     backgroundColor: 'rgba(255,255,255,0.1)',
-    borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.1)',
-  },
-  currentBadgeText: { fontSize: 12, color: 'rgba(255,255,255,0.7)', fontWeight: '600' },
-  
-  planLabel: { fontSize: 24, fontWeight: '800', marginBottom: 16 },
-  featuresList: { marginBottom: 24 },
-  featureItem: { flexDirection: 'row', alignItems: 'center', marginBottom: 12 },
-  featureText: { fontSize: 14, marginLeft: 10 },
-  
-  priceRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 24 },
-  priceText: { fontSize: 18, fontWeight: '700' },
-  pricePeriod: { fontSize: 13, fontWeight: '400', opacity: 0.6 },
-  manageLink: { fontSize: 13, fontWeight: '600' },
-  
-  ctaButton: {
-    height: 56,
-    borderRadius: 28,
     justifyContent: 'center',
     alignItems: 'center',
   },
-  ctaText: { color: 'white', fontSize: 16, fontWeight: '800' },
-  
-  availableSection: { marginBottom: 32 },
-  sectionTitle: { fontSize: 18, fontWeight: '800', marginBottom: 20 },
-  
-  planCard: {
-    flexDirection: 'row',
+  scrollContent: {
+    paddingHorizontal: 20,
+    paddingBottom: 40,
+  },
+  topSection: {
     alignItems: 'center',
-    padding: 16,
+    marginBottom: 30,
+  },
+  lottie: {
+    width: 180,
+    height: 180,
+  },
+  mainTitle: {
+    fontSize: 26,
+    fontWeight: '800',
+    color: 'white',
+    marginTop: 10,
+    textAlign: 'center',
+  },
+  grid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    justifyContent: 'space-between',
+  },
+  featureCard: {
+    width: (width - 50) / 2,
     borderRadius: 20,
+    padding: 16,
+    marginBottom: 10,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.05)',
+    justifyContent: 'space-between',
+    minHeight: 150,
+  },
+  iconContainer: {
+    width: 40,
+    height: 40,
+    borderRadius: 12,
+    justifyContent: 'center',
+    alignItems: 'center',
     marginBottom: 12,
   },
-  planIconBox: { width: 44, height: 44, borderRadius: 22, justifyContent: 'center', alignItems: 'center', marginRight: 16 },
-  planInfo: { flex: 1 },
-  planTitle: { fontSize: 16, fontWeight: '700', marginBottom: 2 },
-  planSubtitle: { fontSize: 12 },
-  
-  historySection: { marginBottom: 32 },
-  transactionCard: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    padding: 16,
-    borderRadius: 20,
-    marginBottom: 12,
+  featureInfo: {
+    flex: 1,
   },
-  transactionIcon: { width: 40, height: 40, borderRadius: 12, justifyContent: 'center', alignItems: 'center', marginRight: 12 },
-  transactionMain: { flex: 1 },
-  transactionTitle: { fontSize: 15, fontWeight: '700', marginBottom: 2 },
-  transactionDate: { fontSize: 12 },
-  transactionAmount: { alignItems: 'flex-end' },
-  amountText: { fontSize: 14, fontWeight: '800', marginBottom: 4 },
-  statusRow: { flexDirection: 'row', alignItems: 'center' },
-  statusText: { fontSize: 11, marginLeft: 4, textTransform: 'capitalize' },
+  featureTitle: {
+    color: 'white',
+    fontSize: 16,
+    fontWeight: '700',
+    marginBottom: 4,
+  },
+  featureDesc: {
+    color: 'rgba(255,255,255,0.5)',
+    fontSize: 11,
+    lineHeight: 14,
+  },
+  statusBadge: {
+    marginTop: 12,
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 12,
+    alignSelf: 'flex-start',
+  },
+  statusText: {
+    color: 'white',
+    fontSize: 10,
+    fontWeight: '700',
+  },
+  bottomSection: {
+    marginTop: 20,
+    alignItems: 'center',
+  },
+  continueButton: {
+    width: '100%',
+    height: 60,
+    borderRadius: 30,
+    overflow: 'hidden',
+  },
+  gradientButton: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  continueText: {
+    color: 'white',
+    fontSize: 18,
+    fontWeight: '800',
+  },
+  priceInfo: {
+    color: 'rgba(255,255,255,0.5)',
+    fontSize: 12,
+    marginTop: 12,
+  },
 });
+

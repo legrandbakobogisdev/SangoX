@@ -69,6 +69,7 @@ interface AuthContextType {
   resetPassword: (email: string) => Promise<void>;
   updateSettings: (category: keyof User['settings'], data: any) => Promise<void>;
   updateUser: (data: Partial<User>) => Promise<void>;
+  refreshProfile: () => Promise<User | null>;
   signInWithGoogle: () => void;
   signInWithFacebook: () => void;
 }
@@ -289,6 +290,19 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   };
 
+  const refreshProfile = useCallback(async () => {
+    try {
+      const response: any = await authApi.getProfile();
+      const updatedUser = response.data;
+      setUser(prev => ({ ...prev, ...updatedUser }));
+      await AsyncStorage.setItem(USER_STORAGE_KEY, JSON.stringify({ ...user, ...updatedUser }));
+      return updatedUser;
+    } catch (error) {
+      console.error('[AuthContext] Error refreshing profile:', error);
+      return null;
+    }
+  }, [authApi, user]);
+
   return (
     <AuthContext.Provider value={{ 
       user, 
@@ -301,6 +315,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       resetPassword,
       updateSettings,
       updateUser,
+      refreshProfile,
       signInWithGoogle: () => Alert.alert('Coming Soon', 'Google sign-in is coming soon.'),
       signInWithFacebook: () => Alert.alert('Coming Soon', 'Facebook sign-in is coming soon.'),
     }}>

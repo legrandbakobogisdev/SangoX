@@ -2,7 +2,7 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { 
   StyleSheet, View, Text, Pressable, TextInput, Dimensions, 
   KeyboardAvoidingView, Platform, StatusBar, Modal, FlatList, 
-  ActivityIndicator, ScrollView 
+  ActivityIndicator, ScrollView, Alert
 } from 'react-native';
 import { useRouter } from 'expo-router';
 import { Image } from 'expo-image';
@@ -30,6 +30,7 @@ import { useTheme } from '@/context/ThemeContext';
 import { useAuth } from '@/context/AuthContext';
 import { useChat } from '@/context/ChatContext';
 import StoryService from '@/services/StoryService';
+import MediaService from '@/services/MediaService';
 import { ApiService } from '@/services/api';
 import ContactService, { ContactItem as DeviceContact } from '@/services/ContactService';
 
@@ -151,7 +152,23 @@ export default function CreateStatusScreen() {
     });
 
     if (!result.canceled) {
-      setImage(result.assets[0].uri);
+      const asset = result.assets[0];
+      
+      try {
+        const limits = await MediaService.getLimits();
+        if (asset.fileSize && asset.fileSize > limits.maxFileSize) {
+          const limitMb = limits.maxFileSize / (1024 * 1024);
+          Alert.alert(
+            'Fichier trop volumineux',
+            `La taille maximale autorisée est de ${limitMb} Mo. ${limits.isPremium ? '' : 'Passez au Premium pour envoyer jusqu\'à 100 Mo.'}`
+          );
+          return;
+        }
+      } catch (e) {
+        console.warn('Could not fetch limits, proceeding anyway', e);
+      }
+      
+      setImage(asset.uri);
     }
   };
 
@@ -195,18 +212,41 @@ export default function CreateStatusScreen() {
     if (!text && !image) return;
     try {
       setIsPublishing(true);
+      
+      let uploadedUrl = image;
+      let mediaMetadata = {};
+
+      if (image && image.startsWith('file://') || image?.startsWith('/')) {
+        // We need to upload the image first
+        const uploadResponse = await MediaService.uploadFile(image, 'story');
+        uploadedUrl = uploadResponse.url;
+        mediaMetadata = {
+          publicId: uploadResponse.publicId,
+          mediaId: uploadResponse.mediaId,
+          type: uploadResponse.type
+        };
+      }
+
       const payload: any = {
         type: image ? 'image' : 'text',
-        content: image || text,
-        mediaParams: { backgroundColor: !image ? bgColor : undefined, text: image ? text : undefined, uri: image },
+        content: uploadedUrl || text,
+        mediaParams: { 
+          backgroundColor: !image ? bgColor : undefined, 
+          text: image ? text : undefined, 
+          uri: uploadedUrl,
+          ...mediaMetadata
+        },
         visibility,
       };
+      
       if (visibility === 'my_contacts_except' && selectedContacts.length > 0) payload.excludedViewers = selectedContacts;
       else if (visibility === 'only_share_with' && selectedContacts.length > 0) payload.allowedViewers = selectedContacts;
+      
       await StoryService.createStory(payload);
       router.back();
-    } catch (e) {
+    } catch (e: any) {
       console.error(e);
+      alert(e.message || 'Failed to publish story');
     } finally {
       setIsPublishing(false);
     }

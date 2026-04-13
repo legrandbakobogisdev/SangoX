@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { useAuth } from '@/context/AuthContext';
 import { 
   StyleSheet, 
   View, 
@@ -15,7 +16,7 @@ import {
 import { useTranslation } from 'react-i18next';
 import { useTheme } from '@/context/ThemeContext';
 import { Spacing, BorderRadius } from '@/constants/theme';
-import { ArrowLeft, Search, User as UserIcon, Check } from 'lucide-react-native';
+import { ArrowLeft, Search, User as UserIcon, Check, MoreVertical, Users } from 'lucide-react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import ContactService, { ContactItem } from '@/services/ContactService';
 import { useChat } from '@/context/ChatContext';
@@ -29,14 +30,19 @@ interface ContactsModalProps {
 export const ContactsModal: React.FC<ContactsModalProps> = ({ visible, onClose }) => {
   const { t } = useTranslation();
   const { colors, theme } = useTheme();
-  const { initiateConversation, setActiveConversation } = useChat();
+  const { user } = useAuth();
+  const { initiateConversation, setActiveConversation, createGroup } = useChat();
   const router = useRouter();
   
   const [contacts, setContacts] = useState<ContactItem[]>([]);
   const [filteredContacts, setFilteredContacts] = useState<ContactItem[]>([]);
   const [loading, setLoading] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
+  const [groupName, setGroupName] = useState('');
   const [selectedContact, setSelectedContact] = useState<ContactItem | null>(null);
+  const [optionsVisible, setOptionsVisible] = useState(false);
+  const [isGroupMode, setIsGroupMode] = useState(false);
+  const [selectedParticipants, setSelectedParticipants] = useState<string[]>([]);
 
   useEffect(() => {
     if (visible) {
@@ -44,6 +50,9 @@ export const ContactsModal: React.FC<ContactsModalProps> = ({ visible, onClose }
       setSelectedContact(null);
     } else {
       setSearchQuery('');
+      setIsGroupMode(false);
+      setSelectedParticipants([]);
+      setGroupName('');
     }
   }, [visible]);
 
@@ -92,6 +101,24 @@ export const ContactsModal: React.FC<ContactsModalProps> = ({ visible, onClose }
   };
 
   const handleDone = async () => {
+    if (isGroupMode) {
+      if (selectedParticipants.length > 0) {
+        try {
+          setLoading(true);
+          const name = groupName.trim() || t('new_group', 'Nouveau groupe');
+          const conversation = await createGroup(name, selectedParticipants);
+          setActiveConversation(conversation);
+          onClose();
+          router.push(`/chat/group/${conversation._id}`);
+        } catch (error) {
+          console.error('Failed to create group:', error);
+        } finally {
+          setLoading(false);
+        }
+      }
+      return;
+    }
+
     if (selectedContact && selectedContact.userId) {
       try {
         setLoading(true);
@@ -107,6 +134,12 @@ export const ContactsModal: React.FC<ContactsModalProps> = ({ visible, onClose }
     }
   };
 
+  const toggleParticipant = (userId: string) => {
+    setSelectedParticipants(prev => 
+      prev.includes(userId) ? prev.filter(id => id !== userId) : [...prev, userId]
+    );
+  };
+
   const handleInvite = async (contact: ContactItem) => {
     try {
       const message = `Hey! Join me on SangoX, a premium real-time chat app. Download it here: https://sangox.app`;
@@ -120,18 +153,32 @@ export const ContactsModal: React.FC<ContactsModalProps> = ({ visible, onClose }
   };
 
   const renderContactItem = ({ item }: { item: ContactItem }) => {
-    const isSelected = selectedContact?.id === item.id;
+    const isSelected = isGroupMode 
+      ? (item.userId && selectedParticipants.includes(item.userId)) 
+      : (selectedContact?.id === item.id);
+
+    const isMe = item.userId === user?._id;
+    const isSelectable = item.isRegistered && !isMe;
+    
     return (
       <Pressable 
         style={({ pressed }) => [
           styles.row, 
           { 
             backgroundColor: isSelected ? `${colors.primary}15` : colors.surface, 
-            borderColor: isSelected ? colors.primary : colors.border 
+            borderColor: isSelected ? colors.primary : colors.border,
+            opacity: (isMe || (isGroupMode && !item.isRegistered)) ? 0.4 : 1
           },
-          pressed && item.isRegistered && { opacity: 0.7 }
+          pressed && isSelectable && { opacity: 0.7 }
         ]}
-        onPress={() => item.isRegistered && setSelectedContact(item)}
+        onPress={() => {
+          if (!isSelectable) return;
+          if (isGroupMode && item.userId) {
+            toggleParticipant(item.userId);
+          } else {
+            setSelectedContact(item);
+          }
+        }}
       >
         <View style={[styles.avatarContainer, { backgroundColor: colors.secondary }]}>
           {item.image ? (
@@ -144,7 +191,7 @@ export const ContactsModal: React.FC<ContactsModalProps> = ({ visible, onClose }
         </View>
         <View style={styles.rowContent}>
           <Text style={[styles.rowLabel, { color: colors.text }]} numberOfLines={1}>
-            {item.name}
+            {item.name}{isMe ? ` (${t('me', 'Moi')})` : ''}
           </Text>
           {item.phoneNumbers[0] && (
             <Text style={[styles.rowDescription, { color: colors.textMuted }]} numberOfLines={1}>
@@ -166,7 +213,7 @@ export const ContactsModal: React.FC<ContactsModalProps> = ({ visible, onClose }
               { backgroundColor: colors.secondary },
               pressed && { opacity: 0.6 }
             ]}
-            onPress={() => handleInvite(item)}
+            onPress={() => !isGroupMode && handleInvite(item)}
           >
             <Text style={[styles.inviteText, { color: colors.primary }]}>{t('invite')}</Text>
           </Pressable>
@@ -197,13 +244,15 @@ export const ContactsModal: React.FC<ContactsModalProps> = ({ visible, onClose }
               <ArrowLeft size={24} color={colors.text} />
             </Pressable>
             <View style={styles.headerTitleContainer}>
-              <Text style={[styles.headerTitle, { color: colors.text }]}>{t('select_contact')}</Text>
+              <Text style={[styles.headerTitle, { color: colors.text }]}>
+                {isGroupMode ? t('new_group', 'Nouveau groupe') : t('select_contact')}
+              </Text>
               <Text style={[styles.headerSubtitle, { color: colors.textMuted }]}>
-                {contacts.length} {t('contacts')}
+                {isGroupMode ? `${selectedParticipants.length} ${t('selected', 'sélectionnés')}` : `${contacts.length} ${t('contacts')}`}
               </Text>
             </View>
             
-            {selectedContact ? (
+            {selectedContact || (isGroupMode && selectedParticipants.length > 0) ? (
               <Pressable 
                 style={({ pressed }) => [
                   styles.doneBtn, 
@@ -215,15 +264,57 @@ export const ContactsModal: React.FC<ContactsModalProps> = ({ visible, onClose }
                 <Text style={styles.doneText}>Done</Text>
               </Pressable>
             ) : (
-              <Pressable style={styles.headerBtn} hitSlop={15}>
-                <Search size={24} color={colors.text} />
+              <Pressable 
+                style={styles.headerBtn} 
+                hitSlop={15}
+                onPress={() => setOptionsVisible(true)}
+              >
+                <MoreVertical size={24} color={colors.text} />
               </Pressable>
             )}
           </View>
         </View>
 
+        {/* Options UI - Modal */}
+        <Modal
+          visible={optionsVisible}
+          transparent
+          animationType="fade"
+          onRequestClose={() => setOptionsVisible(false)}
+        >
+          <Pressable 
+            style={styles.modalOverlay} 
+            onPress={() => setOptionsVisible(false)}
+          >
+            <View style={[styles.optionsMenu, { backgroundColor: colors.surface, borderColor: colors.border }]}>
+              <Pressable 
+                style={({ pressed }) => [styles.optionItem, pressed && { backgroundColor: `${colors.primary}10` }]}
+                onPress={() => {
+                  setIsGroupMode(true);
+                  setOptionsVisible(false);
+                }}
+              >
+                <Users size={20} color={colors.text} />
+                <Text style={[styles.optionText, { color: colors.text }]}>{t('create_group', 'Créer un groupe')}</Text>
+              </Pressable>
+            </View>
+          </Pressable>
+        </Modal>
+
         {!loading && contacts.length > 0 && (
           <View style={styles.searchContainer}>
+            {isGroupMode && (
+              <View style={[styles.searchBar, { backgroundColor: theme === 'dark' ? '#1E1E1E' : '#F0F2F5', marginBottom: 12 }]}>
+                 <Users size={18} color={theme === 'dark' ? '#8696A0' : '#54656F'} style={styles.searchIcon} />
+                 <TextInput
+                  style={[styles.searchInput, { color: colors.text }]}
+                  placeholder={t('group_name', 'Nom du groupe')}
+                  placeholderTextColor={theme === 'dark' ? '#8696A0' : '#54656F'}
+                  value={groupName}
+                  onChangeText={setGroupName}
+                />
+              </View>
+            )}
             <View style={[styles.searchBar, { backgroundColor: theme === 'dark' ? '#1E1E1E' : '#F0F2F5' }]}>
               <Search size={18} color={theme === 'dark' ? '#8696A0' : '#54656F'} style={styles.searchIcon} />
               <TextInput
@@ -443,5 +534,35 @@ const styles = StyleSheet.create({
     fontWeight: '800',
     textTransform: 'uppercase',
     letterSpacing: 1.2,
+  },
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.3)',
+    justifyContent: 'flex-start',
+    alignItems: 'flex-end',
+    paddingTop: 60,
+    paddingRight: 20,
+  },
+  optionsMenu: {
+    width: 200,
+    borderRadius: 12,
+    borderWidth: 1,
+    padding: 8,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.2,
+    shadowRadius: 8,
+    elevation: 5,
+  },
+  optionItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    padding: 12,
+    gap: 12,
+    borderRadius: 8,
+  },
+  optionText: {
+    fontSize: 15,
+    fontWeight: '600',
   },
 });

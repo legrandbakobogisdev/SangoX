@@ -38,7 +38,13 @@ export class ApiService {
     };
 
     if (options.data) {
-      config.body = JSON.stringify(options.data);
+      if (options.data instanceof FormData) {
+        config.body = options.data;
+        // Let fetch auto-set the Content-Type with the correct boundary for multipart/form-data
+        delete (headers as Record<string, string>)['Content-Type'];
+      } else {
+        config.body = JSON.stringify(options.data);
+      }
     }
 
     try {

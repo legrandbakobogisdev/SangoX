@@ -48,15 +48,17 @@ export default function UserProfileScreen() {
     conversations.find(c => c._id === id), 
     [conversations, id]
   );
+  
+  const { messages } = useChat();
+
+  const conversationMedia = useMemo(() => {
+    return messages
+      .filter(m => m.type === 'image' || m.type === 'video')
+      .map(m => m.content)
+      .reverse();
+  }, [messages]);
 
   const isOnline = id && onlineUsers[id as string];
-
-  const MOCK_MEDIA = [
-    'https://images.unsplash.com/photo-1507525428034-b723cf961d3e',
-    'https://images.unsplash.com/photo-1519389950473-47ba0277781c',
-    'https://images.unsplash.com/photo-1501785888041-af3ef285b470',
-    'https://images.unsplash.com/photo-1470071459604-3b5ec3a7fe05',
-  ];
 
   return (
     <View style={[styles.container, { backgroundColor: colors.background }]}>
@@ -96,28 +98,34 @@ export default function UserProfileScreen() {
 
         {/* Stats Row */}
         <View style={styles.statsRow}>
-          <StatCard label="Message" value="12,145" colors={colors} />
-          <StatCard label="Group" value="94" colors={colors} />
-          <StatCard label="Spaces" value="48" colors={colors} />
+          <StatCard label="Message" value={messages.length.toLocaleString()} colors={colors} />
+          <StatCard label="Media" value={conversationMedia.length} colors={colors} />
+          <StatCard label="Spaces" value="0" colors={colors} />
         </View>
 
         {/* Media and Photos */}
         <View style={[styles.sectionContainer, { backgroundColor: colors.surface, borderColor: colors.border }]}>
-          <Pressable style={styles.sectionHeader}>
-            <Text style={[styles.sectionTitle, { color: colors.text }]}>Media and photos</Text>
+          <Pressable 
+            style={styles.sectionHeader}
+            onPress={() => router.push(`/chat/media/${id}`)}
+          >
+            <Text style={[styles.sectionTitle, { color: colors.text }]}>{t('media_and_photos', 'Média et photos')}</Text>
             <ChevronRight size={20} color={colors.textMuted} />
           </Pressable>
           <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.mediaScroll}>
-            {MOCK_MEDIA.map((uri, index) => (
-              <View key={index} style={styles.mediaWrapper}>
-                <Image source={{ uri }} style={styles.mediaThumb} contentFit="cover" />
-                {index === 3 && (
-                  <View style={styles.mediaOverlay}>
-                    <Text style={styles.overlayText}>+42</Text>
-                  </View>
-                )}
-              </View>
-            ))}
+            {conversationMedia.length > 0 ? (
+              conversationMedia.slice(0, 10).map((uri, index) => (
+                <Pressable 
+                  key={index} 
+                  style={styles.mediaWrapper}
+                  onPress={() => router.push(`/chat/media/${id}`)}
+                >
+                  <Image source={{ uri }} style={styles.mediaThumb} contentFit="cover" />
+                </Pressable>
+              ))
+            ) : (
+              <Text style={{ color: colors.textMuted, paddingVertical: 10 }}>Aucun média partagé</Text>
+            )}
           </ScrollView>
         </View>
 
@@ -126,7 +134,7 @@ export default function UserProfileScreen() {
           <ActionItem icon={Bell} label="Notification" colors={colors} />
           <ActionItem icon={Eye} label="Media visibility" colors={colors} />
           <ActionItem icon={Bookmark} label="Bookmarked" colors={colors} />
-          <ActionItem icon={Lock} label="Lock Chat" colors={colors} isSwitch={true} switchValue={true} />
+          <ActionItem icon={Lock} label="Lock Chat" colors={colors} isSwitch={true} switchValue={false} />
         </View>
 
         {/* Extra Actions */}

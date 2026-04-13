@@ -3,7 +3,7 @@ import { ApiService } from '@/services/api';
 import { ChatService, Conversation, Message } from '@/services/ChatService';
 import { ContactItem } from '@/services/ContactService';
 import SocketService from '@/services/SocketService';
-import React, { createContext, useCallback, useContext, useEffect, useState } from 'react';
+import React, { createContext, useCallback, useContext, useEffect, useRef, useState } from 'react';
 import { AppState, AppStateStatus } from 'react-native';
 
 interface ChatContextType {
@@ -26,6 +26,9 @@ interface ChatContextType {
   pinMessage: (conversationId: string, messageId: string | null) => Promise<void>;
   editMessage: (messageId: string, content: string) => Promise<void>;
   deleteMessage: (messageId: string) => Promise<void>;
+  togglePinConversation: (conversationId: string) => Promise<void>;
+  toggleReaction: (messageId: string, emoji: string) => Promise<void>;
+  forwardMessage: (messageId: string, targetConversationIds: string[]) => Promise<void>;
   typingStatus: Record<string, boolean>;
 }
 
@@ -43,6 +46,23 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [pinnedMessages, setPinnedMessages] = useState<Record<string, Message[]>>({});
   const [typingStatus, setTypingStatus] = useState<Record<string, boolean>>({});
   const [appState, setAppState] = useState<AppStateStatus>('active');
+  const activeChatRef = useRef<Conversation | null>(null);
+  const conversationsRef = useRef<Conversation[]>([]);
+  const messagesRef = useRef<Message[]>([]);
+  
+  // Keep refs in sync for socket listeners to avoid re-registering
+  useEffect(() => {
+    activeChatRef.current = activeConversation;
+  }, [activeConversation]);
+
+  useEffect(() => {
+    conversationsRef.current = conversations;
+  }, [conversations]);
+
+  useEffect(() => {
+    messagesRef.current = messages;
+  }, [messages]);
+
 
   const checkStatus = useCallback((userId: string) => {
     SocketService.emit('check_presence', [userId]);
@@ -70,7 +90,10 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
     const profileName = `${participant.firstName || ''} ${participant.lastName || ''}`.trim();
     if (profileName) return profileName;
 
-    // 3. Last fallback to phone number
+    // 3. Fallback to username
+    if (participant.username) return participant.username;
+
+    // 4. Last fallback to phone number or ID
     return participant.phoneNumber || participant.id || participant._id;
   }, [deviceContacts]);
 
@@ -101,14 +124,24 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
       // Auto-fetch participant info for individual chats to avoid "chat" label
       const augmentedConversations = await Promise.all(data.map(async (conv) => {
         if (conv.type === 'individual') {
-          const otherId = conv.participants.find(p => p !== user?._id);
-          if (otherId) {
-            const participant = await fetchUserIfNeeded(otherId);
+          // Find the other participant
+          const otherParticipant = conv.participants.find(p => {
+             const pId = typeof p === 'string' ? p : p._id;
+             return String(pId) !== String(user?._id) && String(pId) !== String(user?.id);
+          });
+
+          if (otherParticipant) {
+            const otherId = typeof otherParticipant === 'string' ? otherParticipant : otherParticipant._id;
+            
+            // Use already populated info from backend if available, otherwise fetch
+            const participant = typeof otherParticipant === 'object' ? otherParticipant : await fetchUserIfNeeded(otherId);
+            
             if (participant) {
               return {
                 ...conv,
                 name: getDisplayName(participant) || conv.name,
-                image: participant.avatar || conv.groupMetadata?.icon
+                image: participant.profilePhotoUrl || participant.avatar || conv.groupMetadata?.icon,
+                isPremium: participant.isPremium || false
               };
             }
           }
@@ -125,8 +158,14 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
       // JOIN ALL CONVERSATIONS to receive message updates
       const AllParticipants = new Set<string>();
       data.forEach(conversation => {
-        const otherParticipants = conversation.participants.filter(p => p !== user?._id);
-        otherParticipants.forEach(p => AllParticipants.add(p));
+        const otherParticipants = conversation.participants.filter(p => {
+            const pId = typeof p === 'string' ? p : p._id;
+            return String(pId) !== String(user?._id);
+        });
+        otherParticipants.forEach(p => {
+            const pId = typeof p === 'string' ? p : p._id;
+            if (pId) AllParticipants.add(pId);
+        });
         SocketService.joinConversation(conversation._id);
       });
 
@@ -139,7 +178,7 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
     } finally {
       if (!isSilent) setLoading(false);
     }
-  }, [user, accessToken]);
+  }, [user?._id, accessToken]);
 
   // Handle active conversation selection
   const setActiveConversation = useCallback(async (conversation: Conversation | null) => {
@@ -222,7 +261,11 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
     // CLIENT-SIDE BLOCK CHECK
     const myId = String(user._id);
     const iBlocked = activeConversation.blockedBy?.includes(myId);
-    const partnerId = activeConversation.participants.find(p => String(p) !== myId);
+    const partnerParticipant = activeConversation.participants.find(p => {
+      const pId = typeof p === 'string' ? p : p._id;
+      return String(pId) !== myId && String(pId) !== String(user?.id);
+    });
+    const partnerId = typeof partnerParticipant === 'string' ? partnerParticipant : partnerParticipant?._id;
     const imBlocked = partnerId ? activeConversation.blockedBy?.includes(String(partnerId)) : false;
 
     if (iBlocked || imBlocked) {
@@ -255,7 +298,11 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
       // Check if recipient is online
       const myId = String(user._id);
-      const recipientId = activeConversation.participants.find(p => String(p) !== myId);
+      const recipientParticipant = activeConversation.participants.find(p => {
+        const pId = typeof p === 'string' ? p : p._id;
+        return String(pId) !== myId;
+      });
+      const recipientId = typeof recipientParticipant === 'string' ? recipientParticipant : recipientParticipant?._id;
       const isRecipientOnline = recipientId ? onlineUsers[recipientId] : false;
 
       // Mark as delivered immediately since server received it
@@ -322,7 +369,7 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
     return () => {
       subscription.remove();
     };
-  }, [user, accessToken, refreshConversations]);
+  }, [user?._id, accessToken, refreshConversations]);
 
   // Initialize Socket.io connection - following PressingExpress robust pattern
   const initializeSocket = useCallback(async () => {
@@ -350,11 +397,15 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
     // Receive new messages
     const handleNewMessage = (message: Message) => {
-      const conv = conversations.find(c => c._id === message.conversationId);
+      const conv = conversationsRef.current.find(c => c._id === message.conversationId);
       if (conv) {
         const myId = String(user?._id);
         const iBlocked = conv.blockedBy?.includes(myId);
-        const partnerId = conv.participants.find(p => String(p) !== myId);
+        const partnerParticipant = conv.participants.find(p => {
+          const pId = typeof p === 'string' ? p : p._id;
+          return String(pId) !== myId;
+        });
+        const partnerId = typeof partnerParticipant === 'string' ? partnerParticipant : partnerParticipant?._id;
         const imBlocked = partnerId ? conv.blockedBy?.includes(String(partnerId)) : false;
 
         if (iBlocked || imBlocked) {
@@ -363,6 +414,7 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
         }
       }
 
+      const activeConversation = activeChatRef.current;
       if (activeConversation && message.conversationId === activeConversation._id) {
         setMessages(prev => {
           // 1. Prevent duplicate by ID
@@ -407,7 +459,7 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
             lastMessage: message,
             unreadCounts: {
               ...prev[index].unreadCounts,
-              [user._id]: (prev[index].unreadCounts[user._id] || 0) + (message.senderId !== user._id && (!activeConversation || activeConversation._id !== message.conversationId) ? 1 : 0)
+              [user._id]: (prev[index].unreadCounts[user._id] || 0) + (message.senderId !== user._id && (!activeChatRef.current || activeChatRef.current._id !== message.conversationId) ? 1 : 0)
             }
           };
           const newConversations = [...prev];
@@ -538,7 +590,7 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
     const handleMessagePinnedStatus = async (data: { conversationId: string, messageId: string, isPinned: boolean }) => {
       if (data.isPinned) {
-        const message = messages.find(m => m._id === data.messageId);
+        const message = messagesRef.current.find(m => m._id === data.messageId);
         if (!message) {
           // Fetch all pinned messages to ensure we have the full content if it was an old message
           try {
@@ -673,8 +725,41 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
       SocketService.off('user_block_status', handleUserBlockStatus);
       SocketService.off('user_typing_start', handleGlobalTypingStart);
       SocketService.off('user_typing_stop', handleGlobalTypingStop);
+      SocketService.off('message_reaction_updated', handleReactionUpdated);
+      SocketService.off('conversation_pin_status', handleConversationPinStatus);
     };
-  }, [user?._id, activeConversation?._id, refreshConversations]);
+  }, [user?._id]); 
+
+  const handleReactionUpdated = (data: { messageId: string, conversationId: string, reactions: Record<string, string[]> }) => {
+    // 1. Update active view
+    setMessages(prev => prev.map(m => m._id === data.messageId ? { ...m, reactions: data.reactions } : m));
+  };
+
+  const handleConversationPinStatus = (data: { conversationId: string, isPinned: boolean }) => {
+    setConversations(prev => prev.map(c => {
+      if (c._id === data.conversationId) {
+        const myId = String(user?._id);
+        let newPinnedBy = [...(c.pinnedBy || [])];
+        if (data.isPinned) {
+          if (!newPinnedBy.includes(myId)) newPinnedBy.push(myId);
+        } else {
+          newPinnedBy = newPinnedBy.filter(id => id !== myId);
+        }
+        return { ...c, pinnedBy: newPinnedBy };
+      }
+      return c;
+    }));
+  };
+
+  useEffect(() => {
+    SocketService.on('message_reaction_updated', handleReactionUpdated);
+    SocketService.on('conversation_pin_status', handleConversationPinStatus);
+    return () => {
+      SocketService.off('message_reaction_updated', handleReactionUpdated);
+      SocketService.off('conversation_pin_status', handleConversationPinStatus);
+    };
+  }, [user?._id]);
+
 
   const toggleArchive = async (conversationId: string) => {
     try {
@@ -686,7 +771,13 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   const toggleBlock = async (conversationId: string) => {
     try {
-      const partnerId = conversations.find(c => c._id === conversationId)?.participants.find(p => p !== user?._id);
+      const partnerParticipant = conversations.find(c => c._id === conversationId)?.participants.find(p => {
+        const pId = typeof p === 'string' ? p : p._id;
+        const myId = String(user?._id);
+        const myIdAlt = String(user?.id);
+        return String(pId) !== myId && String(pId) !== myIdAlt;
+      });
+      const partnerId = typeof partnerParticipant === 'string' ? partnerParticipant : partnerParticipant?._id;
       if (!partnerId) return;
 
       // Calling the auth API directly for global block
@@ -731,6 +822,36 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   };
 
+  const togglePinConversation = async (conversationId: string) => {
+    try {
+      const isPinned = await ChatService.togglePinConversation(conversationId);
+      // Backend emits 'conversation_pin_status'
+    } catch (e) {
+      console.error('Pin conversation error:', e);
+    }
+  };
+
+  const toggleReaction = async (messageId: string, emoji: string) => {
+    try {
+      const reactions = await ChatService.toggleReaction(messageId, emoji);
+      // Optimistic upate or wait for socket? Let's do optimistic for feel
+      setMessages(prev => prev.map(m => m._id === messageId ? { ...m, reactions } : m));
+    } catch (e) {
+      console.error('Toggle reaction error:', e);
+    }
+  };
+
+  const forwardMessage = async (messageId: string, targetConversationIds: string[]) => {
+    try {
+      await ChatService.forwardMessage(messageId, targetConversationIds);
+      // Backend might send new messages via Socket, or we might need to refresh
+      refreshConversations(true);
+    } catch (e) {
+      console.error('Forward message error:', e);
+      throw e;
+    }
+  };
+
   return (
     <ChatContext.Provider value={{
       conversations,
@@ -752,6 +873,9 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
       pinMessage,
       editMessage,
       deleteMessage,
+      togglePinConversation,
+      toggleReaction,
+      forwardMessage,
       typingStatus,
     }}>
       {children}

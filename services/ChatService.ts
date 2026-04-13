@@ -5,18 +5,31 @@ export interface Message {
   conversationId: string;
   senderId: string;
   content: string;
-  type: 'text' | 'image' | 'video' | 'voice' | 'document' | 'system';
+  type: 'text' | 'image' | 'video' | 'voice' | 'document' | 'system' | 'video/mp4' | 'media_group';
   status: 'sent' | 'delivered' | 'read';
   metadata?: any;
-  replyTo?: string;
+  replyTo?: any; // Changed from string to any to support nested objects often found in replies
+  isDeleted?: boolean;
+  reactions?: Record<string, string[]>; // emoji: [userIds] 
   createdAt: string;
   updatedAt: string;
+  [key: string]: any; // Allow for extra properties like 'items' in media groups
+}
+
+export interface Participant {
+  _id: string;
+  username: string;
+  isPremium?: boolean;
+  profilePhotoUrl?: string;
+  firstName?: string;
+  lastName?: string;
+  phoneNumber?: string;
 }
 
 export interface Conversation {
   _id: string;
   type: 'individual' | 'group';
-  participants: string[];
+  participants: (string | Participant)[];
   lastMessage?: Message;
   unreadCounts: Record<string, number>;
   groupMetadata?: {
@@ -27,12 +40,14 @@ export interface Conversation {
     admins: string[];
   };
   archivedBy: string[];
+  pinnedBy: string[];
   mutedBy: string[];
   blockedBy: string[];
   createdAt: string;
   updatedAt: string;
   name?: string;
   image?: string;
+  isPremium?: boolean;
 }
 
 export class ChatService {
@@ -176,5 +191,41 @@ export class ChatService {
   static async getPinnedMessages(conversationId: string): Promise<any[]> {
     const response: any = await ApiService.get(`/api/chat/messages/${conversationId}/pinned`);
     return response.data;
+  }
+
+  /**
+   * Toggle pin for a conversation
+   */
+  static async togglePinConversation(conversationId: string): Promise<boolean> {
+    const response: any = await ApiService.patch(`/api/chat/conversations/${conversationId}/pin`);
+    return response.data;
+  }
+
+  /**
+   * Add/Remove a reaction to a message
+   */
+  static async toggleReaction(messageId: string, emoji: string): Promise<Record<string, string[]>> {
+    const response: any = await ApiService.post(`/api/chat/messages/${messageId}/reactions`, { emoji });
+    return response.data.reactions;
+  }
+
+  /**
+   * Forward a message to one or more conversations
+   */
+  static async forwardMessage(messageId: string, targetConversationIds: string[]): Promise<any> {
+    // Check if it's a virtual group ID
+    const baseId = messageId.startsWith('group_') ? messageId.slice(6) : messageId;
+
+    const promises: Promise<any>[] = [];
+    
+    targetConversationIds.forEach(targetId => {
+      promises.push(
+        ApiService.post(`/api/chat/messages/${baseId}/forward`, {
+          targetConversationId: targetId
+        })
+      );
+    });
+
+    return Promise.all(promises);
   }
 }

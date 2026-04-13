@@ -7,7 +7,7 @@
     "icon": "./assets/images/icon.png",
     "scheme": "sangox",
     "userInterfaceStyle": "automatic",
-    "newArchEnabled": true,
+    "newArchEnabled": false,
     "ios": {
       "supportsTablet": true,
       "infoPlist": {
@@ -93,7 +93,8 @@
         {
           "contactsPermission": "Allow SangoX to access your contacts so you can chat with them."
         }
-      ]
+      ],
+      "expo-video"
     ],
     "experiments": {
       "typedRoutes": true,
@@ -102,7 +103,7 @@
     "extra": {
       "router": {},
       "eas": {
-        "projectId": "b3939fb8-3271-4556-b948-7a179b00fba2"
+        "projectId": "03aa4a64-09cb-484e-994c-168b6a772a69"
       }
     }
   }

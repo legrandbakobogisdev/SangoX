@@ -17,7 +17,7 @@ export default function ChatsScreen() {
   const { t } = useTranslation();
   const { colors, theme } = useTheme();
   const { user } = useAuth();
-  const { conversations, refreshConversations, loading, onlineUsers, typingStatus, toggleArchive } = useChat();
+  const { conversations, refreshConversations, loading, onlineUsers, typingStatus, toggleArchive, togglePinConversation } = useChat();
   const router = useRouter();
   const [filter, setFilter] = useState<'all' | 'unread' | 'online' | 'groups' | 'archives'>('all');
   const [menuVisible, setMenuVisible] = useState(false);
@@ -130,15 +130,30 @@ export default function ChatsScreen() {
     const isArchived = myId && chat.archivedBy?.includes(myId);
     
     if (filter === 'archives') return isArchived;
-    if (isArchived) return false; // Hide archived by default in other filters
+    if (isArchived) return false; 
     
     if (filter === 'unread') return myId && (chat.unreadCounts?.[myId] || 0) > 0;
     if (filter === 'online') {
-        const partnerId = chat.type === 'individual' ? chat.participants.find(p => p !== myId) : null;
+        const partnerParticipant = chat.type === 'individual' ? chat.participants.find(p => {
+          const pId = typeof p === 'string' ? p : p._id;
+          return String(pId) !== String(myId);
+        }) : null;
+        const partnerId = typeof partnerParticipant === 'string' ? partnerParticipant : partnerParticipant?._id;
         return partnerId && onlineUsers[partnerId];
     }
     if (filter === 'groups') return chat.type === 'group';
     return true;
+  }).sort((a, b) => {
+    const myId = user?._id as string;
+    const aPinned = a.pinnedBy?.includes(myId);
+    const bPinned = b.pinnedBy?.includes(myId);
+    
+    if (aPinned && !bPinned) return -1;
+    if (!aPinned && bPinned) return 1;
+    
+    const aTime = a.lastMessage ? new Date(a.lastMessage.createdAt).getTime() : 0;
+    const bTime = b.lastMessage ? new Date(b.lastMessage.createdAt).getTime() : 0;
+    return bTime - aTime;
   });
 
   return (
@@ -168,13 +183,18 @@ export default function ChatsScreen() {
             if (!creatorId) return null;
             
             const isMe = creatorId === user?._id;
-            const displayName = isMe ? t('me', 'Moi') : (story.user?.username || story.user?.name || t('user'));
+            const profileName = typeof story.user === 'object' 
+              ? `${story.user?.firstName || ''} ${story.user?.lastName || ''}`.trim() 
+              : '';
+            const displayName = isMe ? t('me', 'Moi') : (profileName || story.user?.username || story.user?.name || t('user'));
             const displayImage = (typeof story.user === 'object' ? (story.user?.profilePicture || story.user?.avatar || story.user?.profilePhotoUrl) : null) 
                                 || story.mediaParams?.uri 
                                 || story.content 
                                 || 'https://via.placeholder.com/150';
 
 
+
+            const storyIsPremium = typeof story.user === 'object' ? story.user?.isPremium : false;
 
             return (
               <StoryCircle 
@@ -184,6 +204,7 @@ export default function ChatsScreen() {
                 image={displayImage}
                 storyCount={story.storyCount || 1}
                 unseenCount={story.unseenCount || 0}
+                isPremium={storyIsPremium}
                 onPress={() => router.push(`/status/${storyId}`)} 
               />
             );
@@ -252,24 +273,47 @@ export default function ChatsScreen() {
 
         <View style={styles.chatList}>
           {filteredConversations.map(chat => {
-            const partnerId = chat.type === 'individual' ? chat.participants.find(p => p !== user?._id) : null;
+            const partnerParticipant = chat.type === 'individual' ? chat.participants.find(p => {
+                const pId = typeof p === 'string' ? p : ((p as any)._id || (p as any).id);
+                return String(pId) !== String(user?._id) && String(pId) !== String(user?.id);
+            }) : null;
+            const partnerId = typeof partnerParticipant === 'string' ? partnerParticipant : ((partnerParticipant as any)?._id || (partnerParticipant as any)?.id);
             const isOnline = partnerId ? onlineUsers[partnerId] : false;
             const isLastMessageFromMe = chat.lastMessage?.senderId === user?._id;
+
+            const formatLastMessage = () => {
+              if ((chat as any).isTyping || typingStatus[chat._id]) return t('typing');
+              const msg = chat.lastMessage;
+              if (!msg) return '';
+              
+              if (msg.type === 'text') return msg.content;
+              if (msg.type === 'image') return `📷 ${t('photo')}`;
+              if (msg.type === 'video') return `🎥 ${t('video')}`;
+              if ((msg.type as any) === 'audio') return `🎵 ${t('audio')}`;
+              if (msg.type === 'voice') return `🎤 ${t('voice')}`;
+              if ((msg.type as any) === 'document' || (msg.type as any) === 'file') return `📄 ${t('document')}`;
+              
+              return msg.content || '';
+            };
             
             return (
               <ChatItem 
                 key={chat._id} 
                 id={chat._id}
+                type={chat.type}
                 name={chat.name || (chat.type === 'individual' ? t('chat') : (chat.groupMetadata?.name || t('group')))}
-                text={chat.lastMessage?.content || ''}
+                text={formatLastMessage()}
                 time={chat.lastMessage ? new Date(chat.lastMessage.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : ''}
                 count={user?._id ? (chat.unreadCounts?.[user._id] || 0) : 0}
                 image={chat.image || chat.groupMetadata?.icon}
                 online={isOnline}
                 isTyping={typingStatus[chat._id]}
                 onArchive={toggleArchive}
+                onPin={togglePinConversation}
                 messageStatus={chat.lastMessage?.status as 'sent' | 'delivered' | 'read' | undefined}
                 isLastMessageFromMe={isLastMessageFromMe}
+                isPremium={chat.isPremium}
+                isPinned={chat.pinnedBy?.includes(user?._id as string)}
               />
             );
           })}

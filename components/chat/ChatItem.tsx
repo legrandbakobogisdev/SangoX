@@ -2,27 +2,33 @@ import { BorderRadius, Spacing } from '@/constants/theme';
 import { useTheme } from '@/context/ThemeContext';
 import * as Haptics from 'expo-haptics';
 import { useRouter } from 'expo-router';
-import { Archive, Check, CheckCheck } from 'lucide-react-native';
+import { useChat } from '@/context/ChatContext';
+import { Archive, Check, CheckCheck, Pin, PinOff } from 'lucide-react-native';
 import React from 'react';
 import { useTranslation } from 'react-i18next';
 import { Image, Platform, Pressable, StyleSheet, Text, View } from 'react-native';
 import { Swipeable } from 'react-native-gesture-handler';
+import LottieView from 'lottie-react-native';
 
 interface ChatItemProps {
   id: string;
   name: string;
   text: string;
   time: string;
+  type?: 'individual' | 'group';
   count?: number;
   image?: string;
   online?: boolean;
   isTyping?: boolean;
   onArchive?: (id: string) => void;
+  onPin?: (id: string) => void;
   messageStatus?: 'sent' | 'delivered' | 'read';
   isLastMessageFromMe?: boolean;
+  isPremium?: boolean;
+  isPinned?: boolean;
 }
 
-export const ChatItem = ({ id, name, text, time, count, image, online, isTyping, onArchive, messageStatus, isLastMessageFromMe }: ChatItemProps) => {
+export const ChatItem = ({ id, name, text, time, type = 'individual', count, image, online, isTyping, onArchive, onPin, messageStatus, isLastMessageFromMe, isPremium, isPinned }: ChatItemProps) => {
   const { colors, theme } = useTheme();
   const { t } = useTranslation();
   const router = useRouter();
@@ -33,7 +39,11 @@ export const ChatItem = ({ id, name, text, time, count, image, online, isTyping,
     if (isNavigating.current) return;
     
     isNavigating.current = true;
-    router.push(`/chat/${id}`);
+    if (type === 'group') {
+      router.push(`/chat/group/${id}`);
+    } else {
+      router.push(`/chat/${id}`);
+    }
     
     // Reset after a short delay to allow future navigation
     setTimeout(() => {
@@ -51,6 +61,24 @@ export const ChatItem = ({ id, name, text, time, count, image, online, isTyping,
         style={[styles.archiveAction, { backgroundColor: colors.primary }]}
       >
         <Archive size={24} color="#000" />
+      </Pressable>
+    );
+  };
+
+  const renderLeftActions = (progress: any, dragX: any) => {
+    return (
+      <Pressable 
+        onPress={() => {
+            Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+            onPin?.(id);
+        }}
+        style={[styles.pinAction, { backgroundColor: colors.secondary }]}
+      >
+        {isPinned ? (
+          <PinOff size={24} color={colors.primary} />
+        ) : (
+          <Pin size={24} color={colors.primary} />
+        )}
       </Pressable>
     );
   };
@@ -76,9 +104,12 @@ export const ChatItem = ({ id, name, text, time, count, image, online, isTyping,
   return (
     <Swipeable 
         renderRightActions={renderRightActions}
+        renderLeftActions={renderLeftActions}
         friction={2}
         rightThreshold={40}
+        leftThreshold={40}
         overshootRight={false}
+        overshootLeft={false}
     >
         <Pressable
             onPress={handlePress}
@@ -107,10 +138,35 @@ export const ChatItem = ({ id, name, text, time, count, image, online, isTyping,
             </View>
             <View style={styles.content}>
                 <View style={styles.header}>
-                    <Text style={[styles.name, { color: colors.text }]} numberOfLines={1}>
-                        {name}
-                    </Text>
-                    <Text style={[styles.time, { color: colors.textMuted }]}>{time}</Text>
+                    <View style={styles.nameRow}>
+                      <Text style={[styles.name, { color: colors.text }]} numberOfLines={1}>
+                          {name}
+                      </Text>
+                      {type === 'group' && (
+                        <View style={[styles.groupBadge, { backgroundColor: theme === 'dark' ? '#2A2F32' : '#F0F2F5' }]}>
+                          <Text style={[styles.groupBadgeText, { color: colors.textMuted }]}>{t('group').toUpperCase()}</Text>
+                        </View>
+                      )}
+                      {isPinned && (
+                        <View style={[styles.pinBadge, { backgroundColor: colors.primary + '20' }]}>
+                          <Text style={[styles.pinBadgeText, { color: colors.primary }]}>{t('pin').toUpperCase()}</Text>
+                        </View>
+                      )}
+                      {isPremium && (
+                        <View style={styles.premiumBadge}>
+                          <LottieView 
+                            source={require('@/assets/lottie/Disabled premium.json')} 
+                            autoPlay 
+                            loop 
+                            style={{ width: 20, height: 20 }} 
+                          />
+                        </View>
+                      )}
+                    </View>
+                    <View style={styles.timeRow}>
+                      {isPinned && <Pin size={12} color={colors.primary} style={styles.pinIcon} fill={colors.primary} />}
+                      <Text style={[styles.time, { color: colors.textMuted }]}>{time}</Text>
+                    </View>
                 </View>
                 <View style={styles.footer}>
                     <View style={styles.messageWithStatus}>
@@ -175,7 +231,19 @@ const styles = StyleSheet.create({
   name: {
     fontSize: 16,
     fontWeight: '600',
+    flexShrink: 1,
+  },
+  nameRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
     flex: 1,
+    gap: 4,
+  },
+  premiumBadge: {
+    marginLeft: 0,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: 'transparent',
   },
   time: {
     fontSize: 12,
@@ -219,5 +287,41 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
     height: '100%',
+  },
+  pinAction: {
+    width: 80,
+    justifyContent: 'center',
+    alignItems: 'center',
+    height: '100%',
+  },
+  groupBadge: {
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 6,
+    marginLeft: 4,
+  },
+  groupBadgeText: {
+    fontSize: 9,
+    fontWeight: '800',
+    letterSpacing: 0.5,
+  },
+  timeRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+  },
+  pinIcon: {
+    transform: [{ rotate: '45deg' }],
+  },
+  pinBadge: {
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 6,
+    marginLeft: 4,
+  },
+  pinBadgeText: {
+    fontSize: 9,
+    fontWeight: '800',
+    letterSpacing: 0.5,
   },
 });
