@@ -3,6 +3,7 @@ import { ApiService } from '@/services/api';
 import { ChatService, Conversation, Message } from '@/services/ChatService';
 import { ContactItem } from '@/services/ContactService';
 import SocketService from '@/services/SocketService';
+import { E2EEService } from '@/services/E2EEService';
 import React, { createContext, useCallback, useContext, useEffect, useRef, useState } from 'react';
 import { AppState, AppStateStatus } from 'react-native';
 
@@ -123,6 +124,23 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
       // Auto-fetch participant info for individual chats to avoid "chat" label
       const augmentedConversations = await Promise.all(data.map(async (conv) => {
+        let decryptedLastMessage = conv.lastMessage;
+        if (decryptedLastMessage?.metadata?.isEncrypted && decryptedLastMessage.metadata.nonce) {
+          try {
+            const myId = String(user?._id);
+            const partnerKey = String(decryptedLastMessage.senderId) === myId 
+              ? decryptedLastMessage.metadata.recipientIdentityKey 
+              : decryptedLastMessage.metadata.senderIdentityKey;
+            
+            if (partnerKey) {
+              const plaintext = await E2EEService.decryptMessage(decryptedLastMessage.content, decryptedLastMessage.metadata.nonce, partnerKey);
+              decryptedLastMessage = { ...decryptedLastMessage, content: plaintext };
+            }
+          } catch (e) {
+            decryptedLastMessage = { ...decryptedLastMessage, content: '[Message chiffré - Erreur]' };
+          }
+        }
+
         if (conv.type === 'individual') {
           // Find the other participant
           const otherParticipant = conv.participants.find(p => {
@@ -139,6 +157,7 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
             if (participant) {
               return {
                 ...conv,
+                lastMessage: decryptedLastMessage,
                 name: getDisplayName(participant) || conv.name,
                 image: participant.profilePhotoUrl || participant.avatar || conv.groupMetadata?.icon,
                 isPremium: participant.isPremium || false
@@ -148,6 +167,7 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
         }
         return {
           ...conv,
+          lastMessage: decryptedLastMessage,
           name: conv.groupMetadata?.name || conv.name,
           image: conv.groupMetadata?.icon || conv.image
         };
@@ -179,6 +199,25 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
       if (!isSilent) setLoading(false);
     }
   }, [user?._id, accessToken]);
+
+  const decryptMessageIfNeeded = async (msg: Message) => {
+    if (msg.metadata?.isEncrypted && msg.metadata?.nonce) {
+      try {
+        const myId = String(user?._id);
+        const partnerKey = String(msg.senderId) === myId 
+          ? msg.metadata.recipientIdentityKey 
+          : msg.metadata.senderIdentityKey;
+
+        if (partnerKey) {
+          const plaintext = await E2EEService.decryptMessage(msg.content, msg.metadata.nonce, partnerKey);
+          return { ...msg, content: plaintext };
+        }
+      } catch (e) {
+        return { ...msg, content: '[Message chiffré - Erreur]' };
+      }
+    }
+    return msg;
+  };
 
   // Handle active conversation selection
   const setActiveConversation = useCallback(async (conversation: Conversation | null) => {
@@ -215,8 +254,11 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
           ChatService.getPinnedMessages(conversation._id)
         ]);
 
+        // Decrypt messages if needed
+        const decryptedMessages = await Promise.all(data.map(msg => decryptMessageIfNeeded(msg)));
+
         // Update states silently
-        setMessages(data);
+        setMessages(decryptedMessages);
         setPinnedMessages(prev => ({ ...prev, [conversation._id]: pinnedData }));
 
         // Mark all messages from other users as delivered
@@ -275,49 +317,64 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
     // OPTIMISTIC UPDATE: Add message to list locally WITH A TEMP ID
     const tempId = `temp_${Date.now()}`;
-    const optimisticMessage: Message = {
-      _id: tempId,
-      conversationId: activeConversation._id,
-      senderId: user._id,
-      content: content,
-      type: type as any,
-      metadata: metadata,
-      status: 'sent',
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
-      replyTo: replyTo,
-    };
-
-    setMessages(prev => [...prev, optimisticMessage]);
+    let displayContent = content;
+    let finalMetadata = { ...metadata };
+    let messageContent = content;
 
     try {
+      // 1. Check if E2EE should be applied (Individual chat)
+      if (activeConversation.type === 'individual' && partnerId) {
+        console.log('[E2EE] Attempting to encrypt message for:', partnerId);
+        const session = await E2EEService.establishSession(String(partnerId));
+        
+        if (session && session.sharedSecret) {
+          const encrypted = await E2EEService.encryptMessage(content, session.sharedSecret);
+          if (encrypted) {
+            displayContent = content; // Keep local display as plaintext
+            messageContent = encrypted.content; // Send ciphertext
+            finalMetadata = {
+              ...finalMetadata,
+              isEncrypted: true,
+              nonce: encrypted.nonce,
+              senderIdentityKey: encrypted.senderIdentityKey,
+              recipientIdentityKey: session.recipientIdentityKey,
+              sessionId: session.sessionId
+            };
+            console.log('[E2EE] Message encrypted successfully.');
+          }
+        }
+      }
+
+      const optimisticMessage: Message = {
+        _id: tempId,
+        conversationId: activeConversation._id,
+        senderId: user._id,
+        content: displayContent,
+        type: type as any,
+        metadata: finalMetadata,
+        status: 'sent',
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+        replyTo: replyTo,
+      };
+
+      setMessages(prev => [...prev, optimisticMessage]);
+
       // Force stop typing on our end
       SocketService.stopTyping(activeConversation._id);
 
-      const newMessage = await ChatService.sendMessage(activeConversation._id, content, type, metadata, replyTo);
+      const newMessage = await ChatService.sendMessage(activeConversation._id, messageContent, type, finalMetadata, replyTo);
 
-      // Check if recipient is online
-      const myId = String(user._id);
-      const recipientParticipant = activeConversation.participants.find(p => {
-        const pId = typeof p === 'string' ? p : p._id;
-        return String(pId) !== myId;
-      });
-      const recipientId = typeof recipientParticipant === 'string' ? recipientParticipant : recipientParticipant?._id;
-      const isRecipientOnline = recipientId ? onlineUsers[recipientId] : false;
-
-      // Mark as delivered immediately since server received it
-      // If recipient is online, they'll get it via Socket and send ACK
-      const deliveredMessage = { ...newMessage, status: 'delivered' as const };
-      console.log('[Chat] Message sent, marking as delivered:', newMessage._id);
+      // We still want to show the plaintext locally
+      const deliveredMessage = { ...newMessage, content: displayContent, status: 'delivered' as const };
       setMessages(prev => prev.map(m => m._id === tempId ? deliveredMessage : m));
 
-      // Update the conversation list silently
+      // Update the conversation list
       setConversations(prev => prev.map(c =>
         c._id === activeConversation._id ? { ...c, lastMessage: deliveredMessage } : c
       ));
     } catch (error) {
       console.error('Error sending message:', error);
-      // Remove optimistic message if failed
       setMessages(prev => prev.filter(m => m._id !== tempId));
       throw error;
     }
@@ -396,7 +453,21 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
     if (!user) return;
 
     // Receive new messages
-    const handleNewMessage = (message: Message) => {
+    const handleNewMessage = async (message: Message) => {
+      // 1. Decrypt if needed
+      if (message.metadata?.isEncrypted && message.metadata?.nonce) {
+        console.log('[E2EE] Decrypting incoming message...');
+        const myId = String(user?._id);
+        const partnerKey = String(message.senderId) === myId 
+          ? message.metadata.recipientIdentityKey 
+          : message.metadata.senderIdentityKey;
+          
+        if (partnerKey) {
+          const plaintext = await E2EEService.decryptMessage(message.content, message.metadata.nonce, partnerKey);
+          message.content = plaintext;
+        }
+      }
+
       const conv = conversationsRef.current.find(c => c._id === message.conversationId);
       if (conv) {
         const myId = String(user?._id);
@@ -730,10 +801,10 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
     };
   }, [user?._id]); 
 
-  const handleReactionUpdated = (data: { messageId: string, conversationId: string, reactions: Record<string, string[]> }) => {
-    // 1. Update active view
+  const handleReactionUpdated = useCallback((data: { messageId: string, conversationId: string, reactions: Record<string, string[]> }) => {
+    console.log('[Socket] Reaction updated:', data.messageId, data.reactions);
     setMessages(prev => prev.map(m => m._id === data.messageId ? { ...m, reactions: data.reactions } : m));
-  };
+  }, []);
 
   const handleConversationPinStatus = (data: { conversationId: string, isPinned: boolean }) => {
     setConversations(prev => prev.map(c => {
@@ -822,26 +893,28 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   };
 
-  const togglePinConversation = async (conversationId: string) => {
+  const togglePinConversation = useCallback(async (conversationId: string) => {
     try {
-      const isPinned = await ChatService.togglePinConversation(conversationId);
+      await ChatService.togglePinConversation(conversationId);
       // Backend emits 'conversation_pin_status'
     } catch (e) {
       console.error('Pin conversation error:', e);
     }
-  };
+  }, []);
 
-  const toggleReaction = async (messageId: string, emoji: string) => {
+  const toggleReaction = useCallback(async (messageId: string, emoji: string) => {
     try {
       const reactions = await ChatService.toggleReaction(messageId, emoji);
-      // Optimistic upate or wait for socket? Let's do optimistic for feel
-      setMessages(prev => prev.map(m => m._id === messageId ? { ...m, reactions } : m));
+      console.log('[Chat] Reaction toggled locally:', messageId, typeof reactions, reactions ? 'exists' : 'undefined');
+      if (reactions) {
+        setMessages(prev => prev.map(m => m._id === messageId ? { ...m, reactions } : m));
+      }
     } catch (e) {
       console.error('Toggle reaction error:', e);
     }
-  };
+  }, []);
 
-  const forwardMessage = async (messageId: string, targetConversationIds: string[]) => {
+  const forwardMessage = useCallback(async (messageId: string, targetConversationIds: string[]) => {
     try {
       await ChatService.forwardMessage(messageId, targetConversationIds);
       // Backend might send new messages via Socket, or we might need to refresh
@@ -850,7 +923,7 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
       console.error('Forward message error:', e);
       throw e;
     }
-  };
+  }, [refreshConversations]);
 
   return (
     <ChatContext.Provider value={{

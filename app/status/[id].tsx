@@ -20,6 +20,7 @@ import StoryService from '@/services/StoryService';
 import { useAuth } from '@/context/AuthContext';
 import { useTheme } from '@/context/ThemeContext';
 import { useTranslation } from 'react-i18next';
+import { useChat } from '@/context/ChatContext';
 
 const { width, height } = Dimensions.get('window');
 const IS_IOS = Platform.OS === 'ios';
@@ -52,6 +53,8 @@ export default function StatusViewerScreen() {
     router.back();
   };
 
+  const { conversations } = useChat();
+
   const fetchStories = useCallback(async () => {
     if (!id) return;
     try {
@@ -61,12 +64,25 @@ export default function StatusViewerScreen() {
       
       const groups = rawData.map((group: any) => {
         const u = group.stories?.[0]?.user;
-        const profileName = u && typeof u === 'object' ? `${u.firstName || ''} ${u.lastName || ''}`.trim() : '';
+        let profileName = u && typeof u === 'object' ? `${u.firstName || ''} ${u.lastName || ''}`.trim() : '';
+
+        const isMe = group.userId === user?._id;
+
+        if (!profileName && !isMe) {
+          const chat = conversations.find(c => c.type === 'individual' && c.participants.some((p: any) => (typeof p === 'string' ? p : p._id || p.id) === group.userId));
+          if (chat) {
+            const partner = chat.participants.find((p: any) => (typeof p === 'string' ? p : p._id || p.id) === group.userId);
+            profileName = chat.name || (typeof partner !== 'string' ? (partner?.firstName || partner?.username || partner?.name) : null) || '';
+          }
+        }
+
+        const fallbackName = typeof u === 'object' ? (u?.username || u?.name) : '';
+        const displayName = isMe ? t('me', 'Moi') : (profileName || fallbackName || t('user'));
 
         return {
           id: group.userId,
-          name: profileName || u?.username || u?.name || group.userId || 'User',
-          image: u?.profilePicture || u?.avatar || 'https://via.placeholder.com/150',
+          name: displayName,
+          image: typeof u === 'object' ? (u?.profilePicture || u?.avatar) : null || 'https://via.placeholder.com/150',
           items: group.stories.map((s: any) => ({
             ...s,
             duration: s.mediaParams?.duration ? (s.mediaParams.duration < 100 ? s.mediaParams.duration * 1000 : s.mediaParams.duration) : 5000,

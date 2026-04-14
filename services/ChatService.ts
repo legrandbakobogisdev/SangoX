@@ -204,9 +204,10 @@ export class ChatService {
   /**
    * Add/Remove a reaction to a message
    */
-  static async toggleReaction(messageId: string, emoji: string): Promise<Record<string, string[]>> {
+  static async toggleReaction(messageId: string, emoji: string): Promise<any> {
     const response: any = await ApiService.post(`/api/chat/messages/${messageId}/reactions`, { emoji });
-    return response.data.reactions;
+    // Handle both { data: { reactions: [...] } } and { data: [...] }
+    return response.data.reactions || response.data;
   }
 
   /**

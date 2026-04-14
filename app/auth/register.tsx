@@ -1,8 +1,8 @@
 import { useAuth } from '@/context/AuthContext';
 import { useTheme } from '@/context/ThemeContext';
-import { useRouter } from 'expo-router';
-import { ArrowLeft, Lock, Mail, Smartphone, User } from 'lucide-react-native';
-import React, { useState } from 'react';
+import { useRouter, useLocalSearchParams } from 'expo-router';
+import { ArrowLeft, User, Mail, Smartphone, Smile } from 'lucide-react-native';
+import React, { useState, useEffect } from 'react';
 import {
   ActivityIndicator,
   Alert,
@@ -23,13 +23,23 @@ export default function RegisterScreen() {
   const { signUp } = useAuth();
   const { colors } = useTheme();
   const router = useRouter();
+  const params = useLocalSearchParams();
+  const identifier = params.identifier as string;
+  const code = params.code as string;
+
+  useEffect(() => {
+    if (!identifier || !code) {
+      router.replace('/auth/login');
+    }
+  }, [identifier, code]);
 
   const [step, setStep] = useState(1);
   const [formData, setFormData] = useState({
     username: '',
-    phoneNumber: '',
-    email: '',
-    password: '',
+    firstName: '',
+    lastName: '',
+    phoneNumber: identifier?.includes('@') ? '' : identifier,
+    email: identifier?.includes('@') ? identifier : '',
   });
   const [loading, setLoading] = useState(false);
 
@@ -39,8 +49,8 @@ export default function RegisterScreen() {
 
   const handleNext = () => {
     if (step === 1) {
-      if (!formData.username) {
-        Alert.alert('Error', 'Username is required.');
+      if (!formData.firstName || !formData.lastName) {
+        Alert.alert('Error', 'First name and Last name are required.');
         return;
       }
       setStep(2);
@@ -50,9 +60,9 @@ export default function RegisterScreen() {
   };
 
   const handleRegister = async () => {
-    const { email, password, username, phoneNumber } = formData;
-    if (!email || !password) {
-      Alert.alert('Error', 'Email and Password are required.');
+    const { username } = formData;
+    if (!username) {
+      Alert.alert('Error', 'Username is required.');
       return;
     }
 
@@ -60,7 +70,9 @@ export default function RegisterScreen() {
     try {
       await signUp({
         ...formData,
-        provider: 'email',
+        email: identifier?.includes('@') ? identifier : formData.email,
+        phoneNumber: !identifier?.includes('@') ? identifier : formData.phoneNumber,
+        code,
       });
       Alert.alert('Success', 'Account created successfully!', [
         { text: 'OK', onPress: () => router.replace('/auth/login') }
@@ -88,7 +100,7 @@ export default function RegisterScreen() {
               {step === 1 ? 'Hello there!' : 'Almost done'}
             </Text>
             <Text style={styles.subtitle}>
-              {step === 1 ? 'Let\'s start with the basics' : 'Security and account details'}
+              {step === 1 ? 'Let\'s start with the basics' : 'Complete your profile'}
             </Text>
           </View>
 
@@ -96,9 +108,39 @@ export default function RegisterScreen() {
             {step === 1 ? (
               <>
                 <View style={styles.inputGroup}>
-                  <Text style={styles.label}>Username</Text>
+                  <Text style={styles.label}>First Name</Text>
                   <View style={styles.inputContainer}>
                     <User size={20} color="#555" style={styles.icon} />
+                    <TextInput
+                      style={styles.input}
+                      placeholder="e.g. John"
+                      placeholderTextColor="#555"
+                      value={formData.firstName}
+                      onChangeText={(v) => handleChange('firstName', v)}
+                    />
+                  </View>
+                </View>
+
+                <View style={styles.inputGroup}>
+                  <Text style={styles.label}>Last Name</Text>
+                  <View style={styles.inputContainer}>
+                    <User size={20} color="#555" style={styles.icon} />
+                    <TextInput
+                      style={styles.input}
+                      placeholder="e.g. Doe"
+                      placeholderTextColor="#555"
+                      value={formData.lastName}
+                      onChangeText={(v) => handleChange('lastName', v)}
+                    />
+                  </View>
+                </View>
+              </>
+            ) : (
+              <>
+                <View style={styles.inputGroup}>
+                  <Text style={styles.label}>Username</Text>
+                  <View style={styles.inputContainer}>
+                    <Smile size={20} color="#555" style={styles.icon} />
                     <TextInput
                       style={styles.input}
                       placeholder="Pick a unique username"
@@ -110,53 +152,40 @@ export default function RegisterScreen() {
                   </View>
                 </View>
 
-                <View style={styles.inputGroup}>
-                  <Text style={styles.label}>Phone Number (Optional)</Text>
-                  <View style={styles.inputContainer}>
-                    <Smartphone size={20} color="#555" style={styles.icon} />
-                    <TextInput
-                      style={styles.input}
-                      placeholder="+237 ..."
-                      placeholderTextColor="#555"
-                      value={formData.phoneNumber}
-                      onChangeText={(v) => handleChange('phoneNumber', v)}
-                      keyboardType="phone-pad"
-                    />
+                {!identifier?.includes('@') && (
+                  <View style={styles.inputGroup}>
+                    <Text style={styles.label}>Email Address (Recommended)</Text>
+                    <View style={styles.inputContainer}>
+                      <Mail size={20} color="#555" style={styles.icon} />
+                      <TextInput
+                        style={styles.input}
+                        placeholder="your@email.com"
+                        placeholderTextColor="#555"
+                        value={formData.email}
+                        onChangeText={(v) => handleChange('email', v)}
+                        keyboardType="email-address"
+                        autoCapitalize="none"
+                      />
+                    </View>
                   </View>
-                </View>
-              </>
-            ) : (
-              <>
-                <View style={styles.inputGroup}>
-                  <Text style={styles.label}>Email Address</Text>
-                  <View style={styles.inputContainer}>
-                    <Mail size={20} color="#555" style={styles.icon} />
-                    <TextInput
-                      style={styles.input}
-                      placeholder="your@email.com"
-                      placeholderTextColor="#555"
-                      value={formData.email}
-                      onChangeText={(v) => handleChange('email', v)}
-                      keyboardType="email-address"
-                      autoCapitalize="none"
-                    />
-                  </View>
-                </View>
+                )}
 
-                <View style={styles.inputGroup}>
-                  <Text style={styles.label}>Create Password</Text>
-                  <View style={styles.inputContainer}>
-                    <Lock size={20} color="#555" style={styles.icon} />
-                    <TextInput
-                      style={styles.input}
-                      placeholder="At least 8 characters"
-                      placeholderTextColor="#555"
-                      value={formData.password}
-                      onChangeText={(v) => handleChange('password', v)}
-                      secureTextEntry
-                    />
+                {identifier?.includes('@') && (
+                  <View style={styles.inputGroup}>
+                    <Text style={styles.label}>Phone Number (Optional)</Text>
+                    <View style={styles.inputContainer}>
+                      <Smartphone size={20} color="#555" style={styles.icon} />
+                      <TextInput
+                        style={styles.input}
+                        placeholder="+237 ..."
+                        placeholderTextColor="#555"
+                        value={formData.phoneNumber}
+                        onChangeText={(v) => handleChange('phoneNumber', v)}
+                        keyboardType="phone-pad"
+                      />
+                    </View>
                   </View>
-                </View>
+                )}
               </>
             )}
 

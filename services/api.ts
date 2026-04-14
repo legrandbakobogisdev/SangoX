@@ -47,15 +47,21 @@ export class ApiService {
       }
     }
 
+    console.log(`[API Request] ${options.method || 'GET'} ${endpoint}`, options.data ? options.data : '');
+
     try {
       const response = await fetch(url, config);
       const result = await response.json();
 
+      console.log(`[API Response] ${response.status} ${endpoint}`, result);
+
       if (!response.ok) {
         // Handle Token Expiry - but NOT for login/register endpoints
-        const isAuthEndpoint = endpoint.includes('/login') || endpoint.includes('/register') || endpoint.includes('/refresh');
+        const isAuthEndpoint = endpoint.includes('/login') || endpoint.includes('/register') || endpoint.includes('/refresh') || endpoint.includes('/verify-otp');
         
         if (response.status === 401 && !isAuthEndpoint && !this.isRefreshing) {
+          // ... (keep refresh logic as is but maybe add logs)
+          console.log('[API] Attempting token refresh...');
           this.isRefreshing = true;
           try {
             const refreshToken = await AsyncStorage.getItem('@sangox_refresh_token');
@@ -67,6 +73,7 @@ export class ApiService {
                });
                const refreshResult = await refreshResponse.json();
                if (refreshResponse.ok && refreshResult.data?.accessToken) {
+                  console.log('[API] Token refresh succeeded');
                   const newAccessToken = refreshResult.data.accessToken;
                   await AsyncStorage.setItem(ACCESS_TOKEN_KEY, newAccessToken);
                   if (refreshResult.data.refreshToken) {
@@ -76,10 +83,9 @@ export class ApiService {
                     this.onTokenRefresh(newAccessToken);
                   }
                   this.isRefreshing = false;
-                  // Retry the original request with new token
                   return this.request<T>(endpoint, options);
                } else {
-                  console.error('Refresh token response not ok:', refreshResponse.status);
+                  console.error('[API] Refresh token response not ok:', refreshResponse.status);
                   this.isRefreshing = false;
                   throw new Error('Token refresh failed');
                }
@@ -88,7 +94,7 @@ export class ApiService {
               throw new Error('No refresh token available');
             }
           } catch (e) {
-             console.error('Refresh Token flow failed', e);
+             console.error('[API] Refresh Token flow failed', e);
              this.isRefreshing = false;
              throw new Error('Token refresh failed');
           }
@@ -99,12 +105,13 @@ export class ApiService {
           ? `${result.message}: ${Object.values(result.errors).join(', ')}`
           : result.message || 'API request failed';
           
+        console.error(`[API Error Output] ${endpoint}:`, errorMessage);
         throw new Error(errorMessage);
       }
 
       return result;
     } catch (error: any) {
-      console.error(`API Error [${endpoint}]:`, error);
+      console.error(`[API Network Error] ${endpoint}:`, error.message);
       throw error;
     }
   }

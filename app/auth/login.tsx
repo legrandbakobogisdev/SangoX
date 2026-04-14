@@ -19,36 +19,59 @@ import {
 
 const { width, height } = Dimensions.get('window');
 
-type LoginView = 'WELCOME' | 'EMAIL';
+type LoginView = 'WELCOME' | 'IDENTIFIER' | 'OTP';
 
 export default function LoginScreen() {
-  const { signIn, signInWithGoogle, signInWithFacebook } = useAuth();
+  const [view, setView] = useState<LoginView>('WELCOME');
+  const [identifier, setIdentifier] = useState('');
+  const [code, setCode] = useState('');
+  const [loading, setLoading] = useState(false);
+
+  const { requestOtp, verifyOtp, signInWithGoogle, signInWithFacebook } = useAuth();
   const { colors } = useTheme();
   const router = useRouter();
 
-  const [view, setView] = useState<LoginView>('WELCOME');
-  const [email, setEmail] = useState('');
-  const [password, setPassword] = useState(''); // We'll add password after email for security
-  const [step, setStep] = useState(1); // 1: Email, 2: Password
-  const [loading, setLoading] = useState(false);
-
-  const handleNextStep = () => {
-    if (step === 1 && email.includes('@')) {
-      setStep(2);
-    } else if (step === 2 && password) {
-      handleSignIn();
-    }
-  };
-
-  const handleSignIn = async () => {
+  const handleRequestCode = async () => {
+    if (!identifier) return;
     setLoading(true);
     try {
-      await signIn(email, password);
+      const normalizedIdentifier = await requestOtp(identifier);
+      setIdentifier(normalizedIdentifier);
+      setView('OTP');
     } catch (error: any) {
-      Alert.alert('Error', error.message || 'Login failed.');
+      Alert.alert('Error', error.message || 'Failed to send code.');
     } finally {
       setLoading(false);
     }
+  };
+
+  const handleVerifyCode = async () => {
+    if (code.length !== 6) return;
+    setLoading(true);
+    try {
+      const { isNewUser, identifier: normalizedIdentifier, code: verifiedCode } = await verifyOtp(identifier, code);
+      if (isNewUser) {
+        router.push({
+          pathname: '/auth/register',
+          params: { identifier: normalizedIdentifier, code: verifiedCode || code }
+        });
+      }
+      // If NOT new user, AuthContext automatically updates user state and navigation handles redirect
+    } catch (error: any) {
+      Alert.alert('Error', error.message || 'Invalid code.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const formatCodeDisplay = (text: string) => {
+    const cleaned = text.replace(/\D/g, '').slice(0, 6);
+    if (cleaned.length > 3) {
+      return `SX-${cleaned.slice(0, 3)}-${cleaned.slice(3)}`;
+    } else if (cleaned.length > 0) {
+      return `SX-${cleaned}`;
+    }
+    return '';
   };
 
   const renderWelcome = () => (
@@ -83,27 +106,27 @@ export default function LoginScreen() {
               onPress={() => signInWithGoogle()}
             >
               <Chrome size={20} color="#000" style={styles.socialIcon} />
-              <Text style={[styles.socialButtonText, { color: '#000' }]}>Sign up with google</Text>
+              <Text style={[styles.socialButtonText, { color: '#000' }]}>Continue with Google</Text>
             </Pressable>
 
             <Pressable
               style={[styles.socialButton, { backgroundColor: '#1A1A1A' }]}
-              onPress={() => router.push('/auth/register')}
+              onPress={() => setView('IDENTIFIER')}
             >
               <Mail size={20} color="#FFF" style={styles.socialIcon} />
-              <Text style={[styles.socialButtonText, { color: '#FFF' }]}>Sign up with email</Text>
+              <Text style={[styles.socialButtonText, { color: '#FFF' }]}>Continue with Email</Text>
             </Pressable>
 
             <Pressable
               style={[styles.socialButton, { backgroundColor: '#1A1A1A' }]}
-              onPress={() => { }}
+              onPress={() => setView('IDENTIFIER')}
             >
               <Smartphone size={20} color="#FFF" style={styles.socialIcon} />
-              <Text style={[styles.socialButtonText, { color: '#FFF' }]}>Sign up with phone number</Text>
+              <Text style={[styles.socialButtonText, { color: '#FFF' }]}>Continue with Phone</Text>
             </Pressable>
           </View>
 
-          <Pressable style={styles.loginLink} onPress={() => setView('EMAIL')}>
+          <Pressable style={styles.loginLink} onPress={() => setView('IDENTIFIER')}>
             <Text style={styles.loginLinkText}>
               Already have an account? <Text style={{ color: '#F2E3BC', fontWeight: '700' }}>Log in</Text>
             </Text>
@@ -113,44 +136,36 @@ export default function LoginScreen() {
     </ScrollView>
   );
 
-  const renderEmailView = () => (
+  const renderIdentifierView = () => (
     <ScrollView 
       style={styles.viewContainer}
       showsVerticalScrollIndicator={false}
       contentContainerStyle={{ flexGrow: 1 }}
     >
       <View style={{ paddingHorizontal: 24 }}>
-        <Pressable style={styles.backButton} onPress={() => {
-          if (step === 2) setStep(1);
-          else setView('WELCOME');
-        }}>
+        <Pressable style={styles.backButton} onPress={() => setView('WELCOME')}>
           <ArrowLeft size={32} color="white" />
         </Pressable>
 
         <View style={styles.emailHeader}>
-          <Text style={styles.emailTitle}>
-            {step === 1 ? 'Continue with email' : 'Enter your password'}
-          </Text>
-          <Text style={styles.emailSubtitle}>
-            {step === 1 ? 'Sign in or sign up with your email.' : `Enter password for ${email}`}
-          </Text>
+          <Text style={styles.emailTitle}>Welcome back</Text>
+          <Text style={styles.emailSubtitle}>Enter your email or phone number to receive a verification code.</Text>
         </View>
 
         <View style={styles.inputSection}>
-          <Text style={styles.inputLabel}>{step === 1 ? 'Email' : 'Password'}</Text>
+          <Text style={styles.inputLabel}>Email or Phone</Text>
           <View style={[
             styles.emailInputContainer,
-            { borderColor: email ? '#F2E3BC66' : '#222' }
+            { borderColor: identifier ? '#F2E3BC66' : '#222' }
           ]}>
             <TextInput
               style={styles.emailInput}
-              placeholder={step === 1 ? "Enter Address" : "Enter Password"}
+              placeholder="email@example.com or +237..."
               placeholderTextColor="#555"
-              value={step === 1 ? email : password}
-              onChangeText={step === 1 ? setEmail : setPassword}
-              keyboardType={step === 1 ? "email-address" : "default"}
+              value={identifier}
+              onChangeText={setIdentifier}
+              keyboardType="email-address"
               autoCapitalize="none"
-              secureTextEntry={step === 2}
               autoFocus
             />
           </View>
@@ -158,16 +173,82 @@ export default function LoginScreen() {
           <Pressable
             style={[
               styles.continueButton,
-              { backgroundColor: (step === 1 ? email.includes('@') : password.length > 5) ? '#F2E3BC' : '#333' }
+              { backgroundColor: identifier.length > 3 ? '#F2E3BC' : '#333' }
             ]}
-            onPress={handleNextStep}
+            onPress={handleRequestCode}
             disabled={loading}
           >
             {loading ? (
               <ActivityIndicator color="#000" />
             ) : (
-              <Text style={styles.continueButtonText}>Continue</Text>
+              <Text style={styles.continueButtonText}>Send Code</Text>
             )}
+          </Pressable>
+        </View>
+      </View>
+    </ScrollView>
+  );
+
+  const renderOtpView = () => (
+    <ScrollView 
+      style={styles.viewContainer}
+      showsVerticalScrollIndicator={false}
+      contentContainerStyle={{ flexGrow: 1 }}
+    >
+      <View style={{ paddingHorizontal: 24 }}>
+        <Pressable style={styles.backButton} onPress={() => setView('IDENTIFIER')}>
+          <ArrowLeft size={32} color="white" />
+        </Pressable>
+
+        <View style={styles.emailHeader}>
+          <Text style={styles.emailTitle}>Verify it's you</Text>
+          <Text style={styles.emailSubtitle}>We've sent a 6-digit code to {identifier}.</Text>
+        </View>
+
+        <View style={styles.inputSection}>
+          <Text style={styles.inputLabel}>Verification Code</Text>
+          <View style={[
+            styles.emailInputContainer,
+            { borderColor: code ? '#F2E3BC66' : '#222' }
+          ]}>
+            <TextInput
+              style={[styles.emailInput, { fontSize: 24, letterSpacing: 2, fontWeight: '700' }]}
+              placeholder="SX-xxx-xxx"
+              placeholderTextColor="#222"
+              value={formatCodeDisplay(code)}
+              onChangeText={(text) => {
+                const cleaned = text.replace(/\D/g, '').slice(0, 6);
+                setCode(cleaned);
+                if (cleaned.length === 6) {
+                   // Optional: auto-submit?
+                }
+              }}
+              keyboardType="number-pad"
+              autoFocus
+            />
+          </View>
+
+          <Pressable
+            style={[
+              styles.continueButton,
+              { backgroundColor: code.length === 6 ? '#F2E3BC' : '#333' }
+            ]}
+            onPress={handleVerifyCode}
+            disabled={loading}
+          >
+            {loading ? (
+              <ActivityIndicator color="#000" />
+            ) : (
+              <Text style={styles.continueButtonText}>Verify & Continue</Text>
+            )}
+          </Pressable>
+
+          <Pressable 
+            style={{ marginTop: 20, alignItems: 'center' }} 
+            onPress={handleRequestCode}
+            disabled={loading}
+          >
+            <Text style={{ color: '#888' }}>Didn't receive a code? <Text style={{ color: '#F2E3BC' }}>Resend</Text></Text>
           </Pressable>
         </View>
       </View>
@@ -180,7 +261,7 @@ export default function LoginScreen() {
         behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
         style={{ flex: 1 }}
       >
-        {view === 'WELCOME' ? renderWelcome() : renderEmailView()}
+        {view === 'WELCOME' ? renderWelcome() : view === 'IDENTIFIER' ? renderIdentifierView() : renderOtpView()}
       </KeyboardAvoidingView>
     </View>
   );

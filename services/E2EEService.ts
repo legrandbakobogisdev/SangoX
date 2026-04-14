@@ -2,24 +2,33 @@ import * as Crypto from 'expo-crypto';
 import * as SecureStore from 'expo-secure-store';
 import * as Application from 'expo-application';
 import { ApiService } from './api';
+import nacl from 'tweetnacl';
+import { Buffer } from 'buffer';
+
+// Inject expo-crypto PRNG into tweetnacl (React Native has no crypto.getRandomValues)
+nacl.setPRNG((x: Uint8Array, n: number) => {
+  const randomBytes = Crypto.getRandomBytes(n);
+  for (let i = 0; i < n; i++) {
+    x[i] = randomBytes[i];
+  }
+});
 
 const KEY_STORAGE_PREFIX = 'sangox_e2ee';
 
 export interface SignalKeyBundle {
   deviceId: string;
   registrationId: number;
-  identityKey: string;
+  identityKey: string; // Base64
   signedPreKey: {
     keyId: number;
-    publicKey: string;
-    signature: string;
+    publicKey: string; // Base64
+    signature: string; // Base64
   };
   oneTimePreKeys: Array<{ keyId: number; publicKey: string }>;
 }
 
 export class E2EEService {
   private static isNativeAvailable() {
-    // Basic check for essential native methods
     try {
       return !!Crypto && !!SecureStore && !!Application;
     } catch (e) {
@@ -27,14 +36,17 @@ export class E2EEService {
     }
   }
 
+  /**
+   * Initializes the E2EE keys, stores them securely, and uploads the public bundle.
+   */
   public static async initializeKeychain() {
     if (!this.isNativeAvailable()) {
-      console.warn('[E2EE] Native modules not available. Rebuild your app.');
+      console.warn('[E2EE] Native modules not available.');
       return null;
     }
 
     try {
-      console.log('[E2EE] Initializing keychain...');
+      console.log('[E2EE] Generating Signal-style key bundle...');
 
       // 1. Get or Generate Device ID
       let deviceId = 'unknown_device';
@@ -46,72 +58,184 @@ export class E2EEService {
         deviceId = await this.getOrGenerateRandomDeviceId();
       }
 
-      // 2. Generate E2EE Keys
       const registrationId = Math.floor(Math.random() * 16384);
-      const identityKeyPair = await this.generateKeyPair();
-      const signedPreKeyPair = await this.generateKeyPair();
-      const signedPreKeySignature = await this.signData(signedPreKeyPair.publicKey, identityKeyPair.privateKey);
 
+      // 2. Generate Long-term Identity Key (Curve25519 for DH key exchange)
+      const identityKeyPair = nacl.box.keyPair();
+      
+      // 3. Generate Signed PreKey (Curve25519 for encryption)
+      const signedPreKeyPair = nacl.box.keyPair();
+      // Sign the signed prekey with identity key using HMAC-like approach
+      const signedPreKeySignature = nacl.hash(Buffer.from(
+        Buffer.from(signedPreKeyPair.publicKey).toString('base64') + 
+        Buffer.from(identityKeyPair.secretKey).toString('base64')
+      ));
+
+      // 4. Generate One-Time PreKeys (Curve25519)
       const oneTimePreKeys = [];
-      for (let i = 1; i <= 25; i++) {
-        const keyPair = await this.generateKeyPair();
+      const otpkPrivateKeys: Record<number, string> = {};
+      
+      for (let i = 1; i <= 100; i++) {
+        const keyPair = nacl.box.keyPair();
         oneTimePreKeys.push({
           keyId: i,
-          publicKey: keyPair.publicKey,
-          privateKey: keyPair.privateKey,
+          publicKey: Buffer.from(keyPair.publicKey).toString('base64'),
         });
+        otpkPrivateKeys[i] = Buffer.from(keyPair.secretKey).toString('base64');
       }
 
-      // 3. Store Private Keys Securely
-      await this.storePrivateKey('identity', identityKeyPair.privateKey);
-      await this.storePrivateKey('signed_pre_key', signedPreKeyPair.privateKey);
-      
-      const otpkPrivateKeys: Record<number, string> = {};
-      oneTimePreKeys.forEach(k => {
-        otpkPrivateKeys[k.keyId] = k.privateKey;
-      });
+      // 5. Store Private Keys Securely
+      await this.storePrivateKey('identity_secret', Buffer.from(identityKeyPair.secretKey).toString('base64'));
+      await this.storePrivateKey('identity_public', Buffer.from(identityKeyPair.publicKey).toString('base64'));
+      await this.storePrivateKey('signed_pre_key_secret', Buffer.from(signedPreKeyPair.secretKey).toString('base64'));
       await this.storePrivateKey('one_time_pre_keys', JSON.stringify(otpkPrivateKeys));
+      await this.storePrivateKey('registration_id', registrationId.toString());
 
-      // 4. Prepare Public Bundle
+      // 6. Prepare Public Bundle
       const bundle: SignalKeyBundle = {
         deviceId,
         registrationId,
-        identityKey: identityKeyPair.publicKey,
+        identityKey: Buffer.from(identityKeyPair.publicKey).toString('base64'),
         signedPreKey: {
           keyId: 1,
-          publicKey: signedPreKeyPair.publicKey,
-          signature: signedPreKeySignature,
+          publicKey: Buffer.from(signedPreKeyPair.publicKey).toString('base64'),
+          signature: Buffer.from(signedPreKeySignature).toString('base64').slice(0, 64),
         },
-        oneTimePreKeys: oneTimePreKeys.map(k => ({
-          keyId: k.keyId,
-          publicKey: k.publicKey,
-        })),
+        oneTimePreKeys,
       };
 
-      // 5. Upload to Backend
+      // 7. Upload to Backend
+      console.log('[E2EE] Uploading public bundle to server...');
       await ApiService.post('/api/auth/keys', bundle);
+      
+      console.log('[E2EE] Keychain initialized and uploaded successfully.');
       return bundle;
     } catch (error) {
-      console.error('[E2EE] Fatal error:', error);
+      console.error('[E2EE] Fatal error during initialization:', error);
       return null;
     }
   }
 
-  private static async generateKeyPair() {
+
+  /**
+   * Checks current OTPK stock on server and replenishes if below threshold
+   */
+  public static async checkAndReplenishKeys() {
     try {
-      const pub = await Crypto.digestStringAsync(Crypto.CryptoDigestAlgorithm.SHA256, Math.random().toString());
-      const priv = await Crypto.digestStringAsync(Crypto.CryptoDigestAlgorithm.SHA256, Math.random().toString());
-      return { publicKey: pub, privateKey: priv };
-    } catch (e) {
-      return { publicKey: 'mock_pub', privateKey: 'mock_priv' };
+      const response: any = await ApiService.get('/api/auth/keys/status');
+      const { count } = response.data;
+
+      if (count < 10) {
+        console.log(`[E2EE] Keys running low (${count}). Replenishing...`);
+        const newKeys = [];
+        const otpkPrivateKeysB64 = await this.getPrivateKey('one_time_pre_keys');
+        const otpkPrivateKeys = otpkPrivateKeysB64 ? JSON.parse(otpkPrivateKeysB64) : {};
+
+        const startId = Math.max(...Object.keys(otpkPrivateKeys).map(Number), 0) + 1;
+
+        for (let i = 0; i < 100; i++) {
+          const id = startId + i;
+          const keyPair = nacl.box.keyPair();
+          newKeys.push({
+            keyId: id,
+            publicKey: Buffer.from(keyPair.publicKey).toString('base64'),
+          });
+          otpkPrivateKeys[id] = Buffer.from(keyPair.secretKey).toString('base64');
+        }
+
+        await ApiService.post('/api/auth/keys/replenish', { oneTimePreKeys: newKeys });
+        await this.storePrivateKey('one_time_pre_keys', JSON.stringify(otpkPrivateKeys));
+        console.log('[E2EE] Replenishment successful.');
+      }
+    } catch (error) {
+      console.error('[E2EE] Replenishment failed:', error);
     }
   }
 
-  private static async signData(data: string, privateKey: string) {
+  /**
+   * Derives a shared secret for a new conversation (Alice side)
+   */
+  public static async establishSession(recipientId: string) {
     try {
-      return await Crypto.digestStringAsync(Crypto.CryptoDigestAlgorithm.SHA256, data + privateKey);
-    } catch (e) {
-      return 'mock_signature';
+      const response: any = await ApiService.get(`/api/auth/keys/${recipientId}`);
+      const devices = response.data;
+      if (!devices || !Array.isArray(devices) || devices.length === 0) {
+        throw new Error('Recipient keys not found');
+      }
+      
+      // Take the first device's key bundle
+      const recipientBundle = devices[0];
+      if (!recipientBundle.identityKey) {
+        throw new Error('Recipient identity key missing');
+      }
+
+      const ourIdentitySecretB64 = await this.getPrivateKey('identity_secret');
+      if (!ourIdentitySecretB64) throw new Error('Local keys not initialized');
+
+      const ourSecretKey = Buffer.from(ourIdentitySecretB64, 'base64');
+      const recipientPubKey = Buffer.from(recipientBundle.identityKey, 'base64');
+
+      // Curve25519 Diffie-Hellman key exchange
+      const sharedSecret = nacl.scalarMult(ourSecretKey, recipientPubKey);
+      
+      return { 
+        sessionId: `${recipientId}_session`, 
+        sharedSecret: Buffer.from(sharedSecret).toString('base64'),
+        recipientIdentityKey: recipientBundle.identityKey
+      };
+    } catch (error) {
+      console.error('[E2EE] Session establishment failed:', error);
+      return null;
+    }
+  }
+
+  /**
+   * Encrypts a message
+   */
+  public static async encryptMessage(message: string, sharedSecretB64: string) {
+    try {
+      const sharedSecret = Buffer.from(sharedSecretB64, 'base64');
+      const nonce = nacl.randomBytes(nacl.secretbox.nonceLength);
+      const messageUint8 = Buffer.from(message, 'utf-8');
+      const encrypted = nacl.secretbox(messageUint8, nonce, sharedSecret);
+      
+      const ourIdentityPub = await this.getPrivateKey('identity_public');
+
+      return {
+        content: Buffer.from(encrypted).toString('base64'),
+        nonce: Buffer.from(nonce).toString('base64'),
+        senderIdentityKey: ourIdentityPub // Tell recipient who we are
+      };
+    } catch (error) {
+      console.error('[E2EE] Encryption failed:', error);
+      return null;
+    }
+  }
+
+  /**
+   * Decrypts a message (Symmetric DH derivation)
+   */
+  public static async decryptMessage(encryptedB64: string, nonceB64: string, partnerIdentityKeyB64: string) {
+    try {
+      const ourIdentitySecretB64 = await this.getPrivateKey('identity_secret');
+      if (!ourIdentitySecretB64) throw new Error('Local keys not initialized');
+      
+      const ourSecretKey = Buffer.from(ourIdentitySecretB64, 'base64');
+      const partnerPubKey = Buffer.from(partnerIdentityKeyB64, 'base64');
+      
+      // Derive the same shared secret (Curve25519 DH)
+      const sharedSecret = nacl.scalarMult(ourSecretKey, partnerPubKey);
+      
+      const nonce = Buffer.from(nonceB64, 'base64');
+      const encrypted = Buffer.from(encryptedB64, 'base64');
+      
+      const decrypted = nacl.secretbox.open(encrypted, nonce, sharedSecret);
+      if (!decrypted) throw new Error('Decryption failed');
+      
+      return Buffer.from(decrypted).toString('utf-8');
+    } catch (error) {
+      console.error('[E2EE] Decryption failed:', error);
+      return '[Message chiffré - Clé manquante]';
     }
   }
 
@@ -121,27 +245,33 @@ export class E2EEService {
         await SecureStore.setItemAsync(`${KEY_STORAGE_PREFIX}_${key}`, value);
       }
     } catch (e) {
-      console.warn(`[E2EE] Could not store private key ${key}:`, e);
+      console.warn(`[E2EE] Storage failed for ${key}:`, e);
+    }
+  }
+
+  private static async getPrivateKey(key: string): Promise<string | null> {
+    try {
+      if (await SecureStore.isAvailableAsync()) {
+        return await SecureStore.getItemAsync(`${KEY_STORAGE_PREFIX}_${key}`);
+      }
+      return null;
+    } catch (e) {
+      return null;
     }
   }
 
   private static async getOrGenerateRandomDeviceId() {
     const key = `${KEY_STORAGE_PREFIX}_device_id`;
     try {
-      let id = null;
-      if (await SecureStore.isAvailableAsync()) {
-         id = await SecureStore.getItemAsync(key);
-      }
+      let id = await this.getPrivateKey('device_id');
       if (!id) {
-        id = await Crypto.digestStringAsync(Crypto.CryptoDigestAlgorithm.SHA256, Date.now().toString());
-        if (await SecureStore.isAvailableAsync()) {
-          await SecureStore.setItemAsync(key, id);
-        }
+        const randomValues = await Crypto.getRandomBytesAsync(32);
+        id = Buffer.from(randomValues).toString('hex');
+        await this.storePrivateKey('device_id', id);
       }
       return id;
     } catch (e) {
-      return 'device_' + Date.now();
+       return 'dev_' + Math.random().toString(36).substring(7);
     }
   }
 }
-

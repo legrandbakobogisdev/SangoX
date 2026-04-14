@@ -183,10 +183,20 @@ export default function ChatsScreen() {
             if (!creatorId) return null;
             
             const isMe = creatorId === user?._id;
-            const profileName = typeof story.user === 'object' 
+            let profileName = typeof story.user === 'object' 
               ? `${story.user?.firstName || ''} ${story.user?.lastName || ''}`.trim() 
               : '';
-            const displayName = isMe ? t('me', 'Moi') : (profileName || story.user?.username || story.user?.name || t('user'));
+              
+            if (!profileName && !isMe) {
+              const chat = conversations.find(c => c.type === 'individual' && c.participants.some((p: any) => (typeof p === 'string' ? p : p._id || p.id) === creatorId));
+              if (chat) {
+                const partner = chat.participants.find((p: any) => (typeof p === 'string' ? p : p._id || p.id) === creatorId);
+                profileName = chat.name || (typeof partner !== 'string' ? (partner?.firstName || partner?.username || partner?.name) : null) || '';
+              }
+            }
+
+            const fallbackName = typeof story.user === 'object' ? (story.user?.username || story.user?.name) : '';
+            const displayName = isMe ? t('me', 'Moi') : (profileName || fallbackName || t('user'));
             const displayImage = (typeof story.user === 'object' ? (story.user?.profilePicture || story.user?.avatar || story.user?.profilePhotoUrl) : null) 
                                 || story.mediaParams?.uri 
                                 || story.content 

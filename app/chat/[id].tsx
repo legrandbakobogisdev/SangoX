@@ -1,29 +1,29 @@
+import { AudioBubble, DocumentBubble, ImageBubble, VideoBubble } from '@/components/chat/media';
 import { BorderRadius, Spacing } from '@/constants/theme';
 import { useAuth } from '@/context/AuthContext';
 import { useChat } from '@/context/ChatContext';
 import { useTheme } from '@/context/ThemeContext';
+import MediaService from '@/services/MediaService';
 import SocketService from '@/services/SocketService';
 import { Ionicons } from '@expo/vector-icons';
 import BottomSheet, { BottomSheetBackdrop, BottomSheetView } from '@gorhom/bottom-sheet';
+import { Audio } from 'expo-av';
 import { BlurView } from 'expo-blur';
 import * as ExpoClipboard from 'expo-clipboard';
+import * as ExpoCrypto from 'expo-crypto';
+import * as DocumentPicker from 'expo-document-picker';
 import * as Haptics from 'expo-haptics';
 import { Image } from 'expo-image';
+import * as ImagePicker from 'expo-image-picker';
 import { router, useLocalSearchParams, useRouter } from 'expo-router';
 import LottieView from 'lottie-react-native';
-import { ChevronLeft, Copy, Crown, Forward, MoreVertical, Paperclip, Phone, Reply, Send, Smile, Trash2, Video, FileText as FileTextIcon, Play, Download, Camera, Image as ImageIcon, File, Mic, X, StopCircle } from 'lucide-react-native';
+import { Camera, ChevronLeft, Copy, File, Forward, Image as ImageIcon, Lock, Mic, MoreVertical, Paperclip, Phone, Play, Reply, Send, Smile, Trash2, Video } from 'lucide-react-native';
 import React, { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { ActivityIndicator, Alert, Animated, Dimensions, FlatList, Keyboard, Modal, Platform, Pressable, StyleSheet, Text, TextInput, TouchableOpacity, View, Linking } from 'react-native';
+import { ActivityIndicator, Alert, Animated, Dimensions, FlatList, Keyboard, Modal, Platform, Pressable, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
 import { Swipeable } from 'react-native-gesture-handler';
 import AnimatedRN, { FadeInDown } from 'react-native-reanimated';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
-import * as ImagePicker from 'expo-image-picker';
-import * as DocumentPicker from 'expo-document-picker';
-import * as ExpoCrypto from 'expo-crypto';
-import { Audio } from 'expo-av';
-import MediaService from '@/services/MediaService';
-import { ImageBubble, VideoBubble, AudioBubble, DocumentBubble } from '@/components/chat/media';
 
 
 const REACTION_EMOJIS = ['🔥', '🙌', '😭', '🙈', '🙏', '😤'];
@@ -179,7 +179,7 @@ export default function ChatDetailScreen() {
       if (typingTimeoutRef.current) clearTimeout(typingTimeoutRef.current);
       // Ensure we stop typing status when leaving the screen
       if (id) SocketService.stopTyping(String(id));
-      
+
       SocketService.off('user_typing_start', handleTypingStart);
       SocketService.off('user_typing_stop', handleTypingStop);
       SocketService.leaveConversation(String(id));
@@ -226,7 +226,7 @@ export default function ChatDetailScreen() {
     setMenuPosition({ top, isMine });
     setActionMenuVisible(true);
   }, [user?._id]);
-  
+
   const [isUploading, setIsUploading] = useState(false);
   const [uploadProgress, setUploadProgress] = useState(0);
   const [uploadingFileName, setUploadingFileName] = useState('');
@@ -273,7 +273,7 @@ export default function ChatDetailScreen() {
     try {
       // 1. Simulation de compression & préparation
       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-      
+
       // 2. Génération du Hash
       let fileHash = '';
       try {
@@ -372,7 +372,7 @@ export default function ChatDetailScreen() {
         quality: 0.9,
       });
       if (result.canceled) return;
-      
+
       for (const asset of result.assets) {
         if (!(await validateFileSize(asset.fileSize))) continue;
         await uploadAndSend(
@@ -458,7 +458,7 @@ export default function ChatDetailScreen() {
       setRecording(recording);
       setIsRecording(true);
       setRecordingDuration(0);
-      
+
       timerRef.current = setInterval(() => {
         setRecordingDuration(prev => prev + 1);
       }, 1000);
@@ -615,7 +615,7 @@ export default function ChatDetailScreen() {
     if (pendingUploadMedia) {
       list.push(pendingUploadMedia);
     }
-    
+
     // Group consecutive media (images/videos) from the same sender in the exact same minute
     const clustered: any[] = [];
     let currentGroup: any = null;
@@ -623,7 +623,7 @@ export default function ChatDetailScreen() {
     for (let i = 0; i < list.length; i++) {
       const msg = list[i];
       const isMedia = msg.type === 'image' || msg.type === 'video' || msg.type === 'video/mp4';
-      
+
       if (isMedia) {
         if (!currentGroup) {
           currentGroup = {
@@ -667,19 +667,19 @@ export default function ChatDetailScreen() {
     }
 
     const finalClustered = clustered.map((group: any) => {
-       if (group.type === 'media_group' && group.items.length === 1) {
-          return group.items[0];
-       }
-       return group;
+      if (group.type === 'media_group' && group.items.length === 1) {
+        return group.items[0];
+      }
+      return group;
     });
 
     const chronologicallyReversed = finalClustered.reverse(); // [Newest, ..., Oldest]
 
     // Flag start of stacks (the oldest message in a sequence from the same sender)
     return chronologicallyReversed.map((msg, idx) => {
-       const nextMsg = chronologicallyReversed[idx + 1]; // Older message
-       const isStartOfStack = !nextMsg || nextMsg.senderId !== msg.senderId;
-       return { ...msg, isFirstInStack: isStartOfStack };
+      const nextMsg = chronologicallyReversed[idx + 1]; // Older message
+      const isStartOfStack = !nextMsg || nextMsg.senderId !== msg.senderId;
+      return { ...msg, isFirstInStack: isStartOfStack };
     });
   }, [messages, pendingUploadMedia]);
 
@@ -702,7 +702,7 @@ export default function ChatDetailScreen() {
           {/* Avatar + User Info */}
           <Pressable
             style={styles.userInfoRow}
-            onPress={() => router.push({ pathname: '/chat/profile', params: { id } })}
+            onPress={() => router.push({ pathname: chat?.type === 'group' ? '/chat/group-profile' : '/chat/profile', params: { id } })}
           >
             {chat?.image || chat?.groupMetadata?.icon ? (
               <Image source={{ uri: chat?.image || chat?.groupMetadata?.icon }} style={styles.headerAvatar} />
@@ -716,13 +716,13 @@ export default function ChatDetailScreen() {
                 </Text>
                 {chat?.isPremium && (
                   <View style={styles.premiumBadge}>
-                                            <LottieView 
-                                              source={require('@/assets/lottie/Disabled premium.json')} 
-                                              autoPlay 
-                                              loop 
-                                              style={{ width: 20, height: 20 }} 
-                                            />
-                                          </View>
+                    <LottieView
+                      source={require('@/assets/lottie/Disabled premium.json')}
+                      autoPlay
+                      loop
+                      style={{ width: 20, height: 20 }}
+                    />
+                  </View>
                 )}
               </View>
               <Text style={[
@@ -833,6 +833,16 @@ export default function ChatDetailScreen() {
                 />
               );
             }}
+            ListFooterComponent={
+              activeConversation?.type === 'individual' ? (
+                <View style={[styles.e2eeBadge, { backgroundColor: colors.background === '#000000' || colors.background === '#09090b' ? '#1c1c1e' : '#FFF3C4' }]}>
+                  <Lock size={12} color={colors.background === '#000000' || colors.background === '#09090b' ? '#F2D36D' : '#8A6A24'} />
+                  <Text style={[styles.e2eeText, { color: colors.background === '#000000' || colors.background === '#09090b' ? '#F2D36D' : '#8A6A24' }]}>
+                    {t('e2ee_notice', 'Les messages sont chiffrés de bout en bout. Personne en dehors de cette discussion, pas même SangoX, ne peut les lire ni les écouter.')}
+                  </Text>
+                </View>
+              ) : null
+            }
           />
         )}
 
@@ -864,9 +874,9 @@ export default function ChatDetailScreen() {
                       </Text>
                     </View>
                     {(replyToMessage?.type === 'image' || replyToMessage?.type === 'video') && (
-                      <Image 
-                        source={{ uri: replyToMessage.type === 'image' ? replyToMessage.content : (replyToMessage.metadata?.thumbnailUrl || replyToMessage.content) }} 
-                        style={styles.replyThumbnail} 
+                      <Image
+                        source={{ uri: replyToMessage.type === 'image' ? replyToMessage.content : (replyToMessage.metadata?.thumbnailUrl || replyToMessage.content) }}
+                        style={styles.replyThumbnail}
                       />
                     )}
                   </View>
@@ -893,8 +903,8 @@ export default function ChatDetailScreen() {
                   </View>
                 ) : (
                   <>
-                    <Pressable 
-                      style={styles.inputIconBtn} 
+                    <Pressable
+                      style={styles.inputIconBtn}
                       onPress={() => {
                         Keyboard.dismiss();
                         setAttachmentSheetVisible(true);
@@ -930,7 +940,7 @@ export default function ChatDetailScreen() {
                     </View>
                   </>
                 )}
-                
+
                 {input.trim() || editingMessage ? (
                   <Pressable
                     onPress={handleSendMessage}
@@ -989,8 +999,8 @@ export default function ChatDetailScreen() {
               {/* Reactions Bar */}
               <View style={[styles.reactionPicker, { borderBottomColor: colors.border }]}>
                 {['👍', '❤️', '😂', '😮', '😢', '🙏'].map(emoji => (
-                  <Pressable 
-                    key={emoji} 
+                  <Pressable
+                    key={emoji}
                     onPress={() => {
                       toggleReaction(selectedMessage?._id, emoji);
                       setActionMenuVisible(false);
@@ -1001,7 +1011,7 @@ export default function ChatDetailScreen() {
                   </Pressable>
                 ))}
               </View>
-<Pressable style={({ pressed }) => [styles.actionMenuItem, pressed && { backgroundColor: colors.background }]} onPress={() => {
+              <Pressable style={({ pressed }) => [styles.actionMenuItem, pressed && { backgroundColor: colors.background }]} onPress={() => {
                 handleForward(selectedMessage);
               }}>
                 <Ionicons name="share-outline" size={20} color={colors.text} />
@@ -1242,6 +1252,23 @@ export default function ChatDetailScreen() {
 }
 
 const styles = StyleSheet.create({
+  e2eeBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    marginHorizontal: 16,
+    marginVertical: 16,
+    borderRadius: 8,
+    gap: 6,
+  },
+  e2eeText: {
+    fontSize: 11,
+    textAlign: 'center',
+    flex: 1,
+    lineHeight: 16,
+  },
   container: {
     flex: 1,
     backgroundColor: '#F8F9FA',
@@ -1397,6 +1424,9 @@ const styles = StyleSheet.create({
     height: 44,
     justifyContent: 'center',
     alignItems: 'center',
+  },
+  reactionEmoji: {
+    fontSize: 28,
   },
   actionList: {
     borderTopWidth: StyleSheet.hairlineWidth,
@@ -1573,7 +1603,7 @@ const styles = StyleSheet.create({
   },
   // --- Message bubble styles (used by MessageItem) ---
   messageWrapper: {
-    marginBottom: 15,
+    marginBottom: 20,
     flexDirection: 'row',
   },
   myMessageWrapper: {
@@ -1816,36 +1846,35 @@ const styles = StyleSheet.create({
     fontWeight: '700',
   },
   reactionsWrapper: {
+    position: 'absolute',
+    bottom: -15,
     flexDirection: 'row',
     flexWrap: 'wrap',
-    gap: 4,
-    marginTop: -12,
-    marginBottom: 8,
-    zIndex: 10,
-    paddingHorizontal: 12,
+    gap: 6,
+    zIndex: 100,
   },
   reactionBadge: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingHorizontal: 10,
-    paddingVertical: 5,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
     borderRadius: 20,
+    gap: 4,
+    backgroundColor: 'rgba(255,255,255,0.15)',
     borderWidth: 1,
     borderColor: 'rgba(255,255,255,0.1)',
-    gap: 5,
-    backgroundColor: 'rgba(0,0,0,0.6)',
     shadowColor: '#000',
-    shadowOffset: { width: 0, height: 4 },
+    shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.2,
-    shadowRadius: 6,
-    elevation: 5,
+    shadowRadius: 4,
+    elevation: 4,
   },
-  reactionEmoji: {
+  reactionBadgeEmoji: {
     fontSize: 14,
   },
-  reactionCount: {
+  reactionBadgeCount: {
     fontSize: 12,
-    fontWeight: '800',
+    fontWeight: '700',
     color: '#FFF',
   },
 });
@@ -1923,8 +1952,8 @@ const MessageItem = memo(({ item, isMine, currentUser, onLongPress, onReply, sho
             onLongPress={(e) => onLongPress(item, e)}
             style={[
               styles.messageBubble,
-              isMine 
-                ? { backgroundColor: '#323232', borderBottomRightRadius: 4 } 
+              isMine
+                ? { backgroundColor: '#323232', borderBottomRightRadius: 4 }
                 : { backgroundColor: 'rgba(255, 255, 255, 0.15)', borderBottomLeftRadius: 4 },
               (isImage || isVideo || isMediaGroup) && { elevation: 0, shadowOpacity: 0, backgroundColor: 'transparent' },
               item.isDeleted && { opacity: 0.7 },
@@ -1942,10 +1971,10 @@ const MessageItem = memo(({ item, isMine, currentUser, onLongPress, onReply, sho
                   </Text>
                 </View>
                 {(item.replyTo.type === 'image' || item.replyTo.type === 'video') && (
-                   <Image 
-                     source={{ uri: item.replyTo.type === 'image' ? item.replyTo.content : (item.replyTo.metadata?.thumbnailUrl || item.replyTo.content) }} 
-                     style={styles.replyThumbnail} 
-                   />
+                  <Image
+                    source={{ uri: item.replyTo.type === 'image' ? item.replyTo.content : (item.replyTo.metadata?.thumbnailUrl || item.replyTo.content) }}
+                    style={styles.replyThumbnail}
+                  />
                 )}
               </View>
             )}
@@ -2042,7 +2071,7 @@ const MessageItem = memo(({ item, isMine, currentUser, onLongPress, onReply, sho
                 )}
                 {/* ─── STACKED MEDIA GROUP ─── */}
                 {isMediaGroup && (
-                  <Pressable 
+                  <Pressable
                     onPress={() => router.push({
                       pathname: '/chat/media-group-detail',
                       params: { messageId: item._id, conversationId: conversationId }
@@ -2052,7 +2081,7 @@ const MessageItem = memo(({ item, isMine, currentUser, onLongPress, onReply, sho
                     {item.items.slice(0, 3).reverse().map((subItem: any, idx: number) => {
                       const total = item.items.length;
                       const isTop = idx === 2 || (total < 3 && idx === total - 1);
-                      
+
                       let rotation = '0deg';
                       let translateX = 0;
                       let translateY = 0;
@@ -2062,15 +2091,15 @@ const MessageItem = memo(({ item, isMine, currentUser, onLongPress, onReply, sho
                         if (idx === 1) { rotation = '6deg'; translateX = 10; translateY = -5; }
                         if (isTop) { rotation = '0deg'; translateX = 0; translateY = 0; }
                       }
-                      
+
                       const uri = subItem.type === 'image' ? subItem.content : (subItem.metadata?.thumbnailUrl || subItem.content);
 
                       return (
-                        <View 
-                          key={subItem._id || idx} 
+                        <View
+                          key={subItem._id || idx}
                           style={[
-                            styles.stackCard, 
-                            { 
+                            styles.stackCard,
+                            {
                               transform: [
                                 { rotate: rotation },
                                 { translateX: translateX },
@@ -2090,14 +2119,18 @@ const MessageItem = memo(({ item, isMine, currentUser, onLongPress, onReply, sho
                         </View>
                       );
                     })}
-                    {/* Count Badges */}
+                    {/* Count Badges — Dynamic */}
                     <View style={styles.stackBadges}>
-                      <View style={[styles.stackBadge, { backgroundColor: 'rgba(255,255,255,0.15)' }]}>
-                        <Text style={styles.stackBadgeText}>🔥 {item.items.length.toString().padStart(2, '0')}</Text>
-                      </View>
-                      <View style={[styles.stackBadge, { backgroundColor: 'rgba(255,255,255,0.15)' }]}>
-                        <Text style={styles.stackBadgeText}>📸 {(item.items.length + 3).toString().padStart(2, '0')}</Text>
-                      </View>
+                      {item.items.filter((i: any) => i.type.includes('video')).length > 0 && (
+                        <View style={[styles.stackBadge, { backgroundColor: 'rgba(255,255,255,0.2)' }]}>
+                          <Text style={styles.stackBadgeText}>▶️ {item.items.filter((i: any) => i.type.includes('video')).length.toString().padStart(2, '0')}</Text>
+                        </View>
+                      )}
+                      {item.items.filter((i: any) => i.type === 'image').length > 0 && (
+                        <View style={[styles.stackBadge, { backgroundColor: 'rgba(255,255,255,0.2)' }]}>
+                          <Text style={styles.stackBadgeText}>📸 {item.items.filter((i: any) => i.type === 'image').length.toString().padStart(2, '0')}</Text>
+                        </View>
+                      )}
                     </View>
                   </Pressable>
                 )}
@@ -2109,7 +2142,7 @@ const MessageItem = memo(({ item, isMine, currentUser, onLongPress, onReply, sho
                 )}
                 {/* ─── UNKNOWN TYPE FALLBACK ─── */}
                 {!hasMedia && item.type !== 'text' && (
-                   <Text style={[styles.myMessageText, isMine ? styles.myMessageText : { color: colors.text }]}>
+                  <Text style={[styles.myMessageText, isMine ? styles.myMessageText : { color: colors.text }]}>
                     [{item.type}] {item.content || item.text}
                   </Text>
                 )}
@@ -2142,24 +2175,52 @@ const MessageItem = memo(({ item, isMine, currentUser, onLongPress, onReply, sho
               </View>
             )}
 
-            {/* Reactions */}
-            {item.reactions && Object.keys(item.reactions).length > 0 && (
-              <View style={[styles.reactionsWrapper, isMine ? { alignSelf: 'flex-end' } : { alignSelf: 'flex-start' }]}>
-                {Object.entries(item.reactions).map(([emoji, users]: [string, any]) => (
-                  <Pressable 
-                    key={emoji} 
-                    style={[styles.reactionBadge, { backgroundColor: colors.surface, borderColor: colors.border }]}
-                    onLongPress={() => toggleReaction(item._id, emoji)}
-                  >
-                    <Text style={styles.reactionEmoji}>{emoji}</Text>
-                    {users.length > 1 && <Text style={[styles.reactionCount, { color: colors.text }]}>{users.length}</Text>}
-                  </Pressable>
-                ))}
-              </View>
-            )}
           </Pressable>
+
+          {/* Reactions — rendered OUTSIDE the bubble, floating below like Telegram */}
+          {item.reactions && (() => {
+            // Handle both object { emoji: [users] } and array formats
+            const rawReactions = item.reactions;
+            if (!rawReactions) return null;
+
+            const reactionsObj: Record<string, any[]> = Array.isArray(rawReactions)
+              ? rawReactions.reduce((acc: Record<string, any[]>, r: any) => {
+                const key = r.emoji || r;
+                if (!acc[key]) acc[key] = [];
+                acc[key].push(r.userId || r);
+                return acc;
+              }, {})
+              : rawReactions;
+
+            if (!reactionsObj || typeof reactionsObj !== 'object') return null;
+            const entries = Object.entries(reactionsObj).filter(([_, users]) =>
+              (Array.isArray(users) && users.length > 0) || (typeof users === 'number' && users > 0)
+            );
+
+            if (entries.length === 0) return null;
+            return (
+              <View style={[styles.reactionsWrapper, isMine ? { right: 20 } : { left: 20 }]}>
+                {entries.map(([emoji, users]: [string, any]) => {
+                  const count = Array.isArray(users) ? users.length : (typeof users === 'number' ? users : 1);
+                  return (
+                    <Pressable
+                      key={emoji}
+                      style={({ pressed }) => [
+                        styles.reactionBadge,
+                        pressed && { transform: [{ scale: 0.9 }] }
+                      ]}
+                      onPress={() => toggleReaction(item._id, emoji)}
+                    >
+                      <Text style={styles.reactionBadgeEmoji}>{emoji}</Text>
+                      {count > 1 && <Text style={styles.reactionBadgeCount}>{count}</Text>}
+                    </Pressable>
+                  );
+                })}
+              </View>
+            );
+          })()}
         </View>
-    </Swipeable>
-  </AnimatedRN.View>
-);
+      </Swipeable>
+    </AnimatedRN.View>
+  );
 });

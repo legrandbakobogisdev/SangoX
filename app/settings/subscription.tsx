@@ -235,7 +235,7 @@ const styles = StyleSheet.create({
     height: 60,
     justifyContent: 'center',
     paddingHorizontal: 20,
-    marginTop: Platform.OS === 'ios' ? 40 : 10,
+    marginTop: 40,
     zIndex: 10,
   },
   closeButton: {

@@ -2,7 +2,13 @@ import { ApiService } from '@/services/api';
 
 export const useAuthApi = () => {
   // Auth & Lifecycle
-  const login = async (payload: any) => ApiService.post('/api/auth/login', payload);
+  // Auth & Lifecycle (Passwordless OTP)
+  const requestOtp = async (payload: { email?: string; phoneNumber?: string }) => 
+    ApiService.post('/api/auth/request-otp', payload);
+    
+  const verifyOtp = async (payload: { identifier: string; code: string }) => 
+    ApiService.post('/api/auth/verify-otp', payload);
+
   const register = async (payload: any) => ApiService.post('/api/auth/register', payload);
   const logout = async () => ApiService.post('/api/auth/logout');
   const refreshTokens = async (refreshToken: string) => ApiService.post('/api/auth/refresh', { refreshToken });
@@ -24,13 +30,13 @@ export const useAuthApi = () => {
   const replenishKeys = async (payload: any) => ApiService.post('/api/auth/keys/replenish', payload);
 
   return {
-    login,
+    requestOtp,
+    verifyOtp,
     register,
     logout,
     refreshTokens,
     getProfile,
     updateProfile,
-    changePassword,
     getUserById,
     updateLastSeen,
     updateSettings,

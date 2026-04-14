@@ -715,7 +715,7 @@ export default function ChatDetailScreen() {
           {/* Avatar + User Info */}
           <Pressable
             style={styles.userInfoRow}
-            onPress={() => router.push({ pathname: '/chat/profile', params: { id } })}
+            onPress={() => router.push({ pathname: '/chat/group-profile', params: { id } })}
           >
             {chat?.image || chat?.groupMetadata?.icon ? (
               <Image source={{ uri: chat?.image || chat?.groupMetadata?.icon }} style={styles.headerAvatar} />
@@ -1589,7 +1589,7 @@ const styles = StyleSheet.create({
   },
   // --- Message bubble styles (used by MessageItem) ---
   messageWrapper: {
-    marginBottom: 15,
+    marginBottom: 20,
     flexDirection: 'row',
   },
   myMessageWrapper: {
@@ -1839,33 +1839,35 @@ const styles = StyleSheet.create({
     fontWeight: '700',
   },
   reactionsWrapper: {
+    position: 'absolute',
+    bottom: -15,
     flexDirection: 'row',
     flexWrap: 'wrap',
-    gap: 4,
-    marginTop: -12,
-    marginBottom: 8,
-    zIndex: 10,
-    paddingHorizontal: 12,
+    gap: 6,
+    zIndex: 100,
   },
   reactionBadge: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingHorizontal: 10,
-    paddingVertical: 5,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
     borderRadius: 20,
+    gap: 4,
+    backgroundColor: 'rgba(255,255,255,0.15)',
     borderWidth: 1,
     borderColor: 'rgba(255,255,255,0.1)',
-    gap: 5,
-    backgroundColor: 'rgba(0,0,0,0.6)',
     shadowColor: '#000',
-    shadowOffset: { width: 0, height: 4 },
+    shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.2,
-    shadowRadius: 6,
-    elevation: 5,
+    shadowRadius: 4,
+    elevation: 4,
   },
-  reactionCount: {
+  reactionBadgeEmoji: {
+    fontSize: 14,
+  },
+  reactionBadgeCount: {
     fontSize: 12,
-    fontWeight: '800',
+    fontWeight: '700',
     color: '#FFF',
   },
 });
@@ -1967,9 +1969,19 @@ const MessageItem = memo(({ item, isMine, currentUser, onLongPress, onReply, sho
                 (isImage || isVideo || isMediaGroup) ? { padding: 0 } : (hasMediaPadding && { padding: 4 })
               ]}>
               {showAvatar && !isMine && !isDeleted && (
-                <Text style={[styles.senderName, { color: colors.primary }]}>
-                  {senderInfo?.firstName ? `${senderInfo.firstName} ${senderInfo.lastName || ''}` : senderInfo?.username || 'User'}
-                </Text>
+                <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 2, gap: 4, paddingHorizontal: (isImage || isVideo || isMediaGroup) ? 10 : 0, paddingTop: (isImage || isVideo || isMediaGroup) ? 6 : 0 }}>
+                  {senderInfo?.isPremium && (
+                    <LottieView
+                      source={require('@/assets/lottie/Disabled premium.json')}
+                      autoPlay
+                      loop
+                      style={{ width: 16, height: 16 }}
+                    />
+                  )}
+                  <Text style={[styles.senderName, { color: colors.primary, marginBottom: 0 }]}>
+                    {senderInfo?.firstName ? `${senderInfo.firstName} ${senderInfo.lastName || ''}`.trim() : senderInfo?.username || 'User'}
+                  </Text>
+                </View>
               )}
             {item.replyTo && !isDeleted && (
               <View style={[styles.replyPreview, isMine ? styles.replyPreviewMine : styles.replyPreviewTheirs, hasMediaPadding && { marginHorizontal: 8, marginTop: 8 }]}>
@@ -2133,14 +2145,18 @@ const MessageItem = memo(({ item, isMine, currentUser, onLongPress, onReply, sho
                         </View>
                       );
                     })}
-                    {/* Count Badges */}
+                    {/* Count Badges — Dynamic */}
                     <View style={styles.stackBadges}>
-                      <View style={[styles.stackBadge, { backgroundColor: 'rgba(255,255,255,0.15)' }]}>
-                        <Text style={styles.stackBadgeText}>🔥 {item.items.length.toString().padStart(2, '0')}</Text>
-                      </View>
-                      <View style={[styles.stackBadge, { backgroundColor: 'rgba(255,255,255,0.15)' }]}>
-                        <Text style={styles.stackBadgeText}>📸 {(item.items.length + 3).toString().padStart(2, '0')}</Text>
-                      </View>
+                      {item.items.filter((i: any) => i.type.includes('video')).length > 0 && (
+                        <View style={[styles.stackBadge, { backgroundColor: 'rgba(255,255,255,0.2)' }]}>
+                          <Text style={styles.stackBadgeText}>▶️ {item.items.filter((i: any) => i.type.includes('video')).length.toString().padStart(2, '0')}</Text>
+                        </View>
+                      )}
+                      {item.items.filter((i: any) => i.type === 'image').length > 0 && (
+                        <View style={[styles.stackBadge, { backgroundColor: 'rgba(255,255,255,0.2)' }]}>
+                          <Text style={styles.stackBadgeText}>📸 {item.items.filter((i: any) => i.type === 'image').length.toString().padStart(2, '0')}</Text>
+                        </View>
+                      )}
                     </View>
                   </Pressable>
                 )}
@@ -2185,22 +2201,50 @@ const MessageItem = memo(({ item, isMine, currentUser, onLongPress, onReply, sho
               </View>
             )}
 
-            {/* Reactions */}
-            {item.reactions && Object.keys(item.reactions).length > 0 && (
-              <View style={[styles.reactionsWrapper, isMine ? { alignSelf: 'flex-end' } : { alignSelf: 'flex-start' }]}>
-                {Object.entries(item.reactions).map(([emoji, users]: [string, any]) => (
-                  <Pressable 
-                    key={emoji} 
-                    style={[styles.reactionBadge, { backgroundColor: colors.surface, borderColor: colors.border }]}
-                    onLongPress={() => toggleReaction(item._id, emoji)}
-                  >
-                    <Text style={styles.reactionEmoji}>{emoji}</Text>
-                    {users.length > 1 && <Text style={[styles.reactionCount, { color: colors.text }]}>{users.length}</Text>}
-                  </Pressable>
-                ))}
-              </View>
-            )}
           </Pressable>
+
+            {/* Reactions — rendered OUTSIDE the bubble, floating below like Telegram */}
+            {item.reactions && (() => {
+              // Handle both object { emoji: [users] } and array formats
+              const rawReactions = item.reactions;
+              if (!rawReactions) return null;
+
+              const reactionsObj: Record<string, any[]> = Array.isArray(rawReactions)
+                ? rawReactions.reduce((acc: Record<string, any[]>, r: any) => {
+                    const key = r.emoji || r;
+                    if (!acc[key]) acc[key] = [];
+                    acc[key].push(r.userId || r);
+                    return acc;
+                  }, {})
+                : rawReactions;
+
+              if (!reactionsObj || typeof reactionsObj !== 'object') return null;
+              const entries = Object.entries(reactionsObj).filter(([_, users]) => 
+                (Array.isArray(users) && users.length > 0) || (typeof users === 'number' && users > 0)
+              );
+
+              if (entries.length === 0) return null;
+              return (
+                <View style={[styles.reactionsWrapper, isMine ? { right: 20 } : { left: 52 }]}>
+                  {entries.map(([emoji, users]: [string, any]) => {
+                    const count = Array.isArray(users) ? users.length : (typeof users === 'number' ? users : 1);
+                    return (
+                      <Pressable 
+                        key={emoji} 
+                        style={({ pressed }) => [
+                          styles.reactionBadge,
+                          pressed && { transform: [{ scale: 0.9 }] }
+                        ]}
+                        onPress={() => toggleReaction(item._id, emoji)}
+                      >
+                        <Text style={styles.reactionBadgeEmoji}>{emoji}</Text>
+                        {count > 1 && <Text style={styles.reactionBadgeCount}>{count}</Text>}
+                      </Pressable>
+                    );
+                  })}
+                </View>
+              );
+            })()}
         </View>
       </View>
     </Swipeable>

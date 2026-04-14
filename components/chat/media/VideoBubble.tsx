@@ -229,7 +229,6 @@ export const VideoBubble = memo<VideoBubbleProps>(({
             player={player}
             style={styles.fullVideo}
             contentFit="contain"
-            allowsFullscreen={false}
             allowsPictureInPicture
           />
 

@@ -63,10 +63,10 @@ interface AuthContextType {
   accessToken: string | null;
   loading: boolean;
   actionLoading: boolean; 
-  signIn: (email: string, password: string) => Promise<void>;
+  requestOtp: (identifier: string) => Promise<string>;
+  verifyOtp: (identifier: string, code: string) => Promise<{ isNewUser: boolean; identifier: string; code?: string }>;
   signUp: (data: any) => Promise<void>;
   signOut: () => Promise<void>;
-  resetPassword: (email: string) => Promise<void>;
   updateSettings: (category: keyof User['settings'], data: any) => Promise<void>;
   updateUser: (data: Partial<User>) => Promise<void>;
   refreshProfile: () => Promise<User | null>;
@@ -171,20 +171,82 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     };
   }, []);
 
-  const signIn = async (email: string, password: string) => {
+  const requestOtp = async (identifier: string): Promise<string> => {
+    console.log('[AuthContext] Requesting OTP for:', identifier);
     try {
-      setLoading(true);
+      setActionLoading(true);
+      const isEmail = identifier.includes('@');
+      const payload = isEmail ? { email: identifier } : { phoneNumber: identifier };
+      const response: any = await authApi.requestOtp(payload);
+      const normalizedIdentifier = response.data?.identifier || identifier;
+      console.log('[AuthContext] OTP request successful, identifier normalized to:', normalizedIdentifier);
+      return normalizedIdentifier;
+    } catch (error) {
+      console.error('[AuthContext] Request OTP Error:', error);
+      throw error;
+    } finally {
+      console.log('[AuthContext] Request OTP finished');
+      setActionLoading(false);
+    }
+  };
+
+  const verifyOtp = async (identifier: string, code: string): Promise<{ isNewUser: boolean; identifier: string; code?: string }> => {
+    console.log('[AuthContext] Verifying OTP...', { identifier, code });
+    try {
+      setActionLoading(true);
+      const response: any = await authApi.verifyOtp({ identifier, code });
+      
+      const { isNewUser, accessToken: token, refreshToken, user: userData } = response.data;
+      console.log('[AuthContext] OTP Verification Result:', { isNewUser });
+
+      if (!isNewUser) {
+        console.log('[AuthContext] Existing user detected, logging in...');
+        // Log in immediately
+        await Promise.all([
+          AsyncStorage.setItem(ACCESS_TOKEN_KEY, token),
+          AsyncStorage.setItem(REFRESH_TOKEN_KEY, refreshToken),
+          AsyncStorage.setItem(USER_STORAGE_KEY, JSON.stringify(userData)),
+        ]);
+
+        setAccessToken(token);
+        setUser(userData);
+
+        try {
+          await E2EEService.initializeKeychain();
+        } catch (e2eeError) {
+          console.error('[AuthContext] E2EE initialization failed:', e2eeError);
+        }
+      }
+
+      return { 
+        isNewUser, 
+        identifier: response.data?.identifier || identifier,
+        code: response.data?.code || code 
+      };
+    } catch (error: any) {
+      console.error('[AuthContext] Verify OTP Error:', error);
+      throw error;
+    } finally {
+      console.log('[AuthContext] Verify OTP finished');
+      setActionLoading(false);
+    }
+  };
+
+  const signUp = async (payload: any) => {
+    console.log('[AuthContext] Finalizing registration for:', payload.username);
+    try {
+      setActionLoading(true);
       
       // Get device registration info
       const devicePayload = await NotificationService.getRegistrationPayload();
       
-      const response: any = await authApi.login({ 
-        email, 
-        password,
+      const response: any = await authApi.register({
+        ...payload,
         ...devicePayload
       });
-      
+
       const { user: userData, accessToken: token, refreshToken } = response.data;
+      console.log('[AuthContext] Registration successful for:', userData.username);
 
       // Persist tokens
       await Promise.all([
@@ -196,51 +258,22 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       setAccessToken(token);
       setUser(userData);
 
-      // Initialize E2EE Keychain after login on a new device
+      // Initialize E2EE
       try {
         await E2EEService.initializeKeychain();
       } catch (e2eeError) {
-        console.error('E2EE initialization failed, but login succeeded:', e2eeError);
+        console.error('[AuthContext] E2EE initialization failed:', e2eeError);
       }
-
     } catch (error: any) {
-      console.error('Sign-In Error:', error);
+      console.error('[AuthContext] Sign-Up Error:', error);
       throw error;
     } finally {
-      setLoading(false);
+      console.log('[AuthContext] Sign-Up finished');
+      setActionLoading(false);
     }
   };
 
-  const signUp = async (payload: any) => {
-    try {
-      setLoading(true);
-      
-      // Get device registration info
-      const devicePayload = await NotificationService.getRegistrationPayload();
-      
-      await authApi.register({
-        ...payload,
-        ...devicePayload
-      });
-    } catch (error: any) {
-      console.error('Sign-Up Error:', error);
-      throw error;
-    } finally {
-      setLoading(false);
-    }
-  };
 
-  const resetPassword = async (email: string) => {
-    try {
-      setLoading(true);
-      // await authApi.resetPassword(email);
-      Alert.alert('Reset Password', `A reset link was sent to ${email}`);
-    } catch (error: any) {
-      throw error;
-    } finally {
-      setLoading(false);
-    }
-  };
 
   const updateSettings = async (category: keyof User['settings'], data: any) => {
     if (!user) return;
@@ -295,7 +328,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       const response: any = await authApi.getProfile();
       const updatedUser = response.data;
       setUser(prev => ({ ...prev, ...updatedUser }));
-      await AsyncStorage.setItem(USER_STORAGE_KEY, JSON.stringify({ ...user, ...updatedUser }));
+      const currentStoredUser = user || (await AsyncStorage.getItem(USER_STORAGE_KEY).then(s => s ? JSON.parse(s) : {}));
+      await AsyncStorage.setItem(USER_STORAGE_KEY, JSON.stringify({ ...currentStoredUser, ...updatedUser }));
       return updatedUser;
     } catch (error) {
       console.error('[AuthContext] Error refreshing profile:', error);
@@ -309,10 +343,10 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       accessToken, 
       loading, 
       actionLoading,
-      signIn, 
+      requestOtp, 
+      verifyOtp,
       signUp, 
       signOut, 
-      resetPassword,
       updateSettings,
       updateUser,
       refreshProfile,
